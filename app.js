@@ -84,7 +84,9 @@
 
   /* ── state ──────────────────────────────────────────────────────────── */
 
-  var PALETTE = ["#7DE8D2", "#A78BFA", "#F7C566", "#FF8098", "#7FB2FF", "#F2A3E8"];
+  /* List colours, anchored on the logo's teal and wood and kept muted enough
+     to sit together on paper. */
+  var PALETTE = ["#4B918F", "#A78562", "#5B7C99", "#7E8F5A", "#8C6A9B", "#C08A4A"];
 
   function uid(prefix) {
     return prefix + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
@@ -246,7 +248,7 @@
   }
 
   var EMPTY = {
-    today: ["Nothing due today", "The quiet kind of day. Add something below when it turns up."],
+    today: ["Nothing due today", "Put your feet up. Add something below when it turns up."],
     upcoming: ["Nothing scheduled ahead", "Give a task a date and it will wait for you here."],
     all: ["Your list is clear", "Start with the smallest thing you have been putting off."],
     done: ["Nothing finished yet", "Tick something off and it will settle down here."]
@@ -254,23 +256,36 @@
 
   /* ── chrome ─────────────────────────────────────────────────────────── */
 
-  var MARK =
-    '<svg class="mark" viewBox="0 0 512 512" aria-hidden="true">' +
-    '<defs><linearGradient id="sw-mark" x1="0" y1="0" x2="1" y2="1">' +
-    '<stop offset="0" stop-color="#7DE8D2"/><stop offset="1" stop-color="#A78BFA"/>' +
-    "</linearGradient></defs>" +
-    '<rect width="512" height="512" rx="116" fill="#0B0D14"/>' +
-    '<circle cx="256" cy="256" r="150" fill="none" stroke="url(#sw-mark)" stroke-opacity=".22" stroke-width="22"/>' +
-    '<path d="M176 262l52 52 108-128" fill="none" stroke="url(#sw-mark)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>' +
-    "</svg>";
+  /* The spa workd sofa, same line work as the logo. Kept in step with
+     icons/mark.svg, which the icon generator renders from. */
+  function sofa(cls, width) {
+    // Cropped to the sofa's own bounds so it fills its box rather than
+    // floating in the square the icon tiles need.
+    return '<svg class="' + cls + '" viewBox="96 146 320 300" fill="none" aria-hidden="true" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' +
+      '<g stroke="#4B918F" stroke-width="' + width + '">' +
+        '<path d="M150 302V196a32 32 0 0 1 32-32h68v138"/>' +
+        '<path d="M362 302V196a32 32 0 0 0-32-32h-68v138"/>' +
+        '<path d="M150 224a38 38 0 0 0-38 38v58"/>' +
+        '<path d="M362 224a38 38 0 0 1 38 38v58"/>' +
+        '<path d="M140 348v-30q56-18 110 0v30z"/>' +
+        '<path d="M372 348v-30q-56-18-110 0v30z"/>' +
+        '<path d="M112 306v36a48 48 0 0 0 48 48h192a48 48 0 0 0 48-48v-36"/>' +
+      "</g>" +
+      '<g stroke="#A78562" stroke-width="' + width + '">' +
+        '<path d="M172 390l-18 40"/><path d="M340 390l18 40"/>' +
+      "</g></svg>";
+  }
+
+  var MARK = sofa("mark", 19);
 
   var SEGMENTS = [["today", "Today"], ["upcoming", "Upcoming"], ["all", "All"], ["done", "Done"]];
 
   document.getElementById("app").innerHTML =
-    '<div class="aurora"></div>' +
+    '<div class="wash"></div>' +
     '<div class="app">' +
       '<header class="masthead">' + MARK +
-        "<div><h1 class=\"wordmark\">spa workd</h1>" +
+        '<div><h1 class="wordmark"><span class="spa">spa</span> <span class="workd">workd</span></h1>' +
         '<p class="standfirst" id="standfirst"></p></div>' +
       "</header>" +
       '<div class="deck">' +
@@ -494,7 +509,7 @@
       var copy = EMPTY[view];
       var empty = el("div", "empty");
       var halo = el("div", "halo");
-      halo.append(el("span"));
+      halo.innerHTML = sofa("rest", 22);
       empty.append(halo, el("h2", null, copy[0]), el("p", null, copy[1]));
       $board.append(empty);
       return;
