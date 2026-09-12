@@ -29,6 +29,32 @@ No framework, no build step, no dependencies — `index.html`, `styles.css`,
 **Android** — open it in Chrome, tap the ⋮ menu, then *Install app* or
 *Add to Home screen*.
 
+## The Android app
+
+The same web app, wrapped with Capacitor — one codebase behind both the site and
+the APK. `tools/sync-www.mjs` gathers the web files into a generated, gitignored
+`www/` for Capacitor to package; nothing is duplicated in version control.
+
+Tasks with a due date raise a notification at 09:00 that morning. The schedule is
+cancelled and relaid on every change, so it never nags about something you have
+already finished. On the web there is no `window.Capacitor`, so that code is inert
+and one `app.js` serves both.
+
+**Getting the APK.** `.github/workflows/android.yml` builds it on a GitHub runner
+(which has the Android SDK) and attaches it to a release, so it can be downloaded
+straight to a phone. To build locally instead you need the Android SDK and JDK 17:
+
+```sh
+npm ci
+node tools/sync-www.mjs
+npx cap sync android
+cd android && ./gradlew assembleDebug
+# android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+`tools/android-icons.mjs` regenerates the launcher, adaptive and status-bar icons
+from `icons/sofa.png`.
+
 ## Run it locally
 
 Any static file server will do — a service worker needs `https://` or
