@@ -3,6 +3,8 @@
 A quiet to-do list for a phone. Add something, tap the circle when it's done,
 swipe it away when it isn't worth keeping.
 
+**Live: https://noam-zeltzer.github.io/spa-workd/**
+
 No framework, no build step, no dependencies — `index.html`, `styles.css`,
 `app.js` and a service worker. It installs to a home screen and runs offline.
 
