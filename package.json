@@ -1,0 +1,26 @@
+{
+  "name": "spa-workd",
+  "version": "1.0.0",
+  "description": "A quiet to-do list for a phone. Add something, tap the circle when it's done, swipe it away when it isn't worth keeping.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noam-zeltzer/spa-workd.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/noam-zeltzer/spa-workd/issues"
+  },
+  "homepage": "https://github.com/noam-zeltzer/spa-workd#readme",
+  "dependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
+    "@capacitor/local-notifications": "^6.1.3"
+  }
+}

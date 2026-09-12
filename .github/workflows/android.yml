@@ -1,0 +1,67 @@
+name: Build Android app
+
+# The APK is built here rather than locally: GitHub's ubuntu runners ship the
+# Android SDK and can reach Google's Maven repository.
+on:
+  push:
+    branches: [claude/minimalist-todo-app-48j48h, main]
+    paths-ignore: ['README.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Collect the web app and sync Capacitor
+        run: |
+          node tools/sync-www.mjs
+          npx cap sync android
+
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Name it after the run
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             "dist/spa-workd-${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spa-workd-apk
+          path: dist/*.apk
+
+      # A release gives a plain download link that works in a phone browser,
+      # which an Actions artifact does not.
+      - name: Publish the download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-${{ github.run_number }}
+          name: spa workd — Android build ${{ github.run_number }}
+          body: |
+            Install on an Android phone: download the `.apk` below, tap it, and
+            allow installing from this source if prompted.
+
+            Built from `${{ github.sha }}`.
+          files: dist/*.apk

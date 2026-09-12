@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">spa workd</string>
+    <string name="title_activity_main">spa workd</string>
+    <string name="package_name">com.spaworkd.app</string>
+    <string name="custom_url_scheme">com.spaworkd.app</string>
+</resources>

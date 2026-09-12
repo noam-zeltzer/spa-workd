@@ -1,0 +1,14 @@
+{
+  "appId": "com.spaworkd.app",
+  "appName": "spa workd",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#FBFBF9"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_sofa",
+      "iconColor": "#4B918F"
+    }
+  }
+}

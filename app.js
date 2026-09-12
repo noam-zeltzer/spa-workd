@@ -157,8 +157,75 @@
     state.updatedAt = Date.now();
     writeLocal(state);
     pushRemote();
+    syncReminders();
     renderBoard();
     renderCounts();
+  }
+
+  /* ── reminders (Android build only) ─────────────────────────────────── */
+
+  /* In the packaged app, Capacitor exposes the native plugins on
+     window.Capacitor.Plugins. On the web there is no such object and every
+     call below is skipped, so the same file serves both. */
+  function notifications() {
+    var cap = window.Capacitor;
+    if (!cap || typeof cap.isNativePlatform !== "function" || !cap.isNativePlatform()) return null;
+    return (cap.Plugins && cap.Plugins.LocalNotifications) || null;
+  }
+
+  /* Android notification ids are 32-bit ints; task ids are strings. */
+  function notifId(id) {
+    var h = 0;
+    for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+    return Math.abs(h) % 2000000000 || 1;
+  }
+
+  function remindAt(key) { return new Date(key + "T09:00:00"); }
+
+  var reminderTimer = null;
+
+  /* Cancel everything pending and lay the schedule down again. Rescheduling
+     wholesale keeps the notifications honest however a task changed — edited,
+     finished, deleted, undeleted — without tracking each case. */
+  function syncReminders() {
+    var ln = notifications();
+    if (!ln) return;
+    clearTimeout(reminderTimer);
+    reminderTimer = setTimeout(function () {
+      ln.getPending().then(function (res) {
+        var pending = (res && res.notifications) || [];
+        if (!pending.length) return null;
+        return ln.cancel({ notifications: pending.map(function (n) { return { id: n.id }; }) });
+      }).then(function () {
+        var now = Date.now();
+        var due = state.tasks.filter(function (t) {
+          return !t.done && t.due && remindAt(t.due).getTime() > now;
+        }).slice(0, 60);          // Android caps how many alarms an app may hold
+        if (!due.length) return null;
+        return ln.schedule({
+          notifications: due.map(function (t) {
+            return {
+              id: notifId(t.id),
+              title: t.title,
+              body: "Due today · spa workd",
+              smallIcon: "ic_stat_sofa",
+              schedule: { at: remindAt(t.due), allowWhileIdle: true }
+            };
+          })
+        });
+      }).catch(function () { /* permission refused, or no alarm slots */ });
+    }, 400);
+  }
+
+  function askForNotifications() {
+    var ln = notifications();
+    if (!ln) return;
+    ln.checkPermissions().then(function (status) {
+      if (status && status.display === "granted") return syncReminders();
+      if (status && status.display && status.display.indexOf("prompt") === 0) {
+        return ln.requestPermissions().then(syncReminders);
+      }
+    }).catch(function () { /* older Android, or the user said no */ });
   }
 
   /* ── optional cross-device sync (Artifact `db`) ─────────────────────── */
@@ -777,6 +844,7 @@
   }, 60000);
 
   connect();
+  askForNotifications();
 
   if ("serviceWorker" in navigator && document.querySelector('link[rel="manifest"]')) {
     window.addEventListener("load", function () {
