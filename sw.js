@@ -2,13 +2,15 @@
    Precache the shell so the app opens instantly and works with no signal;
    cache fonts as they arrive. Bump CACHE to ship a new version. */
 
-var CACHE = "spa-workd-v1";
+var CACHE = "spa-workd-v2";
 var SHELL = [
   ".",
   "index.html",
   "styles.css",
   "app.js",
   "manifest.webmanifest",
+  "icons/sofa.png",
+  "icons/wordmark.png",
   "icons/icon-192.png",
   "icons/icon-512.png",
   "icons/icon-maskable-512.png",

@@ -256,28 +256,14 @@
 
   /* ── chrome ─────────────────────────────────────────────────────────── */
 
-  /* The spa workd sofa, same line work as the logo. Kept in step with
-     icons/mark.svg, which the icon generator renders from. */
-  function sofa(cls, width) {
-    // Cropped to the sofa's own bounds so it fills its box rather than
-    // floating in the square the icon tiles need.
-    return '<svg class="' + cls + '" viewBox="96 146 320 300" fill="none" aria-hidden="true" ' +
-      'stroke-linecap="round" stroke-linejoin="round">' +
-      '<g stroke="#4B918F" stroke-width="' + width + '">' +
-        '<path d="M150 302V196a32 32 0 0 1 32-32h68v138"/>' +
-        '<path d="M362 302V196a32 32 0 0 0-32-32h-68v138"/>' +
-        '<path d="M150 224a38 38 0 0 0-38 38v58"/>' +
-        '<path d="M362 224a38 38 0 0 1 38 38v58"/>' +
-        '<path d="M140 348v-30q56-18 110 0v30z"/>' +
-        '<path d="M372 348v-30q-56-18-110 0v30z"/>' +
-        '<path d="M112 306v36a48 48 0 0 0 48 48h192a48 48 0 0 0 48-48v-36"/>' +
-      "</g>" +
-      '<g stroke="#A78562" stroke-width="' + width + '">' +
-        '<path d="M172 390l-18 40"/><path d="M340 390l18 40"/>' +
-      "</g></svg>";
+  /* The logo itself, cut from the supplied artwork: icons/sofa.png is the
+     sofa and icons/wordmark.png the lettering, both with the paper keyed out
+     so they sit on any ground. The app icons are rendered from the same sofa. */
+  function sofa(cls) {
+    return '<img class="' + cls + '" src="icons/sofa.png" alt="" aria-hidden="true">';
   }
 
-  var MARK = sofa("mark", 19);
+  var MARK = sofa("mark");
 
   var SEGMENTS = [["today", "Today"], ["upcoming", "Upcoming"], ["all", "All"], ["done", "Done"]];
 
@@ -285,7 +271,7 @@
     '<div class="wash"></div>' +
     '<div class="app">' +
       '<header class="masthead">' + MARK +
-        '<div><h1 class="wordmark"><span class="spa">spa</span> <span class="workd">workd</span></h1>' +
+        '<div><h1 class="wordmark"><img src="icons/wordmark.png" alt="spa workd"></h1>' +
         '<p class="standfirst" id="standfirst"></p></div>' +
       "</header>" +
       '<div class="deck">' +
@@ -509,7 +495,7 @@
       var copy = EMPTY[view];
       var empty = el("div", "empty");
       var halo = el("div", "halo");
-      halo.innerHTML = sofa("rest", 22);
+      halo.innerHTML = sofa("rest");
       empty.append(halo, el("h2", null, copy[0]), el("p", null, copy[1]));
       $board.append(empty);
       return;

@@ -94,20 +94,14 @@ button { border: 0; background: none; cursor: pointer; }
   gap: 11px;
 }
 
-.mark { width: 50px; height: 47px; flex: none; display: block; }
+/* the supplied logo, used as supplied */
+.mark { width: 54px; height: auto; flex: none; display: block; }
 
-/* set the way the logo sets it: light teal "spa", bold slate "workd" */
-.wordmark {
-  margin: 0;
-  font-size: 1.4375rem;
-  letter-spacing: -0.018em;
-  line-height: 1.05;
-}
-.wordmark .spa   { font-weight: 300; color: var(--teal); }
-.wordmark .workd { font-weight: 700; color: var(--ink); }
+.wordmark { margin: 0; line-height: 0; }
+.wordmark img { width: 104px; height: auto; display: block; }
 
 .standfirst {
-  margin: 3px 0 0;
+  margin: 7px 0 0;
   font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -397,14 +391,15 @@ button { border: 0; background: none; cursor: pointer; }
   padding: 58px 20px 40px;
 }
 .empty .halo {
-  width: 84px;
-  height: 84px;
+  width: 92px;
+  height: 92px;
   border-radius: 50%;
-  background: var(--teal-wash);
+  background: var(--card);
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--line-soft);
   display: grid;
   place-items: center;
 }
-.empty .halo svg { width: 48px; height: 45px; display: block; }
+.empty .halo img { width: 52px; height: auto; display: block; }
 .empty h2 {
   margin: 0;
   font-weight: 600;

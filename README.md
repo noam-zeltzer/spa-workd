@@ -55,8 +55,25 @@ styles.css                 design tokens, layout, animation
 app.js                     state, storage, rendering, gestures
 sw.js                      offline cache
 manifest.webmanifest       name, icons, standalone launch
-icons/                     generated app icons
+icons/logo-source.png      the supplied logo, untouched
+icons/logo.png             the full lockup, paper keyed out
+icons/sofa.png             the sofa alone — the mark and the icon source
+icons/wordmark.png         the lettering alone — the masthead wordmark
+icons/icon-*.png           app icons, rendered from sofa.png
 ```
+
+## Branding
+
+Everything visible comes from the supplied logo rather than an approximation.
+`icons/logo-source.png` is the original; the sofa and the lettering are cut out
+of it with the paper keyed off on luminance and the antialiased edges
+un-premultiplied, so both sit cleanly on any background. The app icons are the
+sofa centred on a paper tile.
+
+The palette is sampled from the same file: teal `#4B918F` (the sofa outline and
+"spa"), slate `#566E78` (“workd”, deepened to `#2F3E46` for body text), wood
+`#A78562` (the legs) and paper `#FBFBF9`. Overdue and delete use a terracotta
+drawn from the wood family.
 
 To ship a change to an installed copy, bump `CACHE` in `sw.js` so the old
 shell is thrown away.
