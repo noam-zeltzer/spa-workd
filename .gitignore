@@ -2,3 +2,9 @@ node_modules/
 www/
 dist/
 .DS_Store
+
+# signing keys never belong in the repository
+*.jks
+*.keystore
+*.p12
+keystore.b64
