@@ -27,7 +27,23 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
+      # The runner image already ships the Android SDK with its licences
+      # accepted, so the build uses that directly. It used to run
+      # android-actions/setup-android, which broke on 2026-09-15: that action
+      # installs the legacy "tools" package, and Google has withdrawn it from
+      # the SDK repository, so sdkmanager exits 1 and the job dies before the
+      # build starts.
+      - name: Locate the Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "No Android SDK on this runner (ANDROID_SDK_ROOT/ANDROID_HOME unset)." >&2
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "Using $SDK"
+          ls "$SDK/platforms" || true
 
       - name: Install dependencies
         run: npm ci
