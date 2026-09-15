@@ -118,6 +118,7 @@
           id: String(t.id), title: String(t.title), done: !!t.done,
           listId: t.listId ? String(t.listId) : null,
           due: typeof t.due === "string" ? t.due : null,
+          notes: typeof t.notes === "string" ? t.notes : "",
           createdAt: Number(t.createdAt) || Date.now(),
           completedAt: Number(t.completedAt) || null
         };
@@ -357,13 +358,39 @@
       '<div class="extras"><div><div class="chips" id="chips"></div></div></div>' +
       '<div class="compose-row">' +
         '<label class="sr-only" for="title-input">New task</label>' +
-        '<input id="title-input" placeholder="What needs doing?" enterkeyhint="done">' +
+        '<input id="title-input" dir="auto" placeholder="What needs doing?" enterkeyhint="done">' +
         '<button class="send" type="submit" disabled aria-label="Add task">' +
           '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>' +
         "</button>" +
       "</div>" +
     "</form>" +
-    '<div class="toast" id="toast" role="status" aria-live="polite"></div>';
+    '<div class="toast" id="toast" role="status" aria-live="polite"></div>' +
+    '<div class="sheet-wrap" id="sheet-wrap" hidden>' +
+      '<div class="scrim" id="scrim"></div>' +
+      '<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit task">' +
+        '<div class="grip"></div>' +
+        '<label class="sr-only" for="sheet-title">Task</label>' +
+        '<input class="sheet-title" id="sheet-title" dir="auto" enterkeyhint="done">' +
+        '<div class="field"><p class="field-label">When</p>' +
+          '<div class="chips" id="sheet-dates"></div></div>' +
+        '<div class="field"><p class="field-label">List</p>' +
+          '<div class="chips" id="sheet-lists"></div></div>' +
+        '<div class="field">' +
+          '<div class="field-head">' +
+            '<p class="field-label">Notes</p>' +
+            '<button type="button" class="bullet-btn" id="bullet-btn" aria-label="Bullet this line">' +
+              '<span class="pip"></span>Bullet</button>' +
+          "</div>" +
+          '<label class="sr-only" for="sheet-notes">Notes</label>' +
+          '<textarea class="notes" id="sheet-notes" dir="auto" rows="3" ' +
+            'placeholder="Anything worth remembering."></textarea>' +
+        "</div>" +
+        '<div class="sheet-foot">' +
+          '<button type="button" class="ghost" id="sheet-delete">Delete task</button>' +
+          '<button type="button" class="filled" id="sheet-done">Done</button>' +
+        "</div>" +
+      "</div>" +
+    "</div>";
 
   var $segs = document.getElementById("segs");
   var $pill = document.getElementById("seg-pill");
@@ -375,6 +402,12 @@
   var $chips = document.getElementById("chips");
   var $toast = document.getElementById("toast");
   var $standfirst = document.getElementById("standfirst");
+  var $sheetWrap = document.getElementById("sheet-wrap");
+  var $sheet = document.getElementById("sheet");
+  var $sheetTitle = document.getElementById("sheet-title");
+  var $sheetDates = document.getElementById("sheet-dates");
+  var $sheetLists = document.getElementById("sheet-lists");
+  var $notes = document.getElementById("sheet-notes");
 
   /* ── rendering ──────────────────────────────────────────────────────── */
 
@@ -530,7 +563,9 @@
     check.onclick = function () { toggle(task.id); };
 
     var body = el("div", "body");
-    body.append(el("span", "title", task.title));
+    var title = el("span", "title", task.title);
+    title.setAttribute("dir", "auto");       // Hebrew reads right to left, English left to right
+    body.append(title);
 
     var meta = el("div", "meta");
     if (task.due && !task.done) {
@@ -546,11 +581,22 @@
       tag.append(dot, document.createTextNode(list.name));
       meta.append(tag);
     }
+    /* A task with notes wears a small bulleted-list mark, and the number of
+       lines when there is more than one. Enough to tell you something is in
+       there; not so much that the list stops being a list. */
+    var lines = noteLines(task.notes);
+    if (lines) {
+      var mark = el("span", "noted");
+      mark.innerHTML = NOTES_GLYPH;
+      if (lines > 1) mark.append(document.createTextNode(String(lines)));
+      mark.setAttribute("title", lines + (lines === 1 ? " note" : " notes"));
+      meta.append(mark);
+    }
     if (meta.childNodes.length) body.append(meta);
 
     card.append(check, body);
     row.append(plate, card);
-    swipeToDelete(row, card, task.id);
+    rowGestures(row, card, task.id);
     return row;
   }
 
@@ -672,8 +718,9 @@
     });
   }
 
-  /** Horizontal drag on a card reveals the delete plate; far enough removes it. */
-  function swipeToDelete(row, card, id) {
+  /** Horizontal drag reveals the delete plate and far enough removes the task;
+      a press that never travels is a tap, and opens the task. */
+  function rowGestures(row, card, id) {
     var startX = 0, startY = 0, dx = 0, axis = null, active = false;
 
     card.addEventListener("pointerdown", function (e) {
@@ -707,6 +754,7 @@
         removeTask(id);                 // keep the drag offset; the row slides the rest of the way
       } else {
         card.style.transform = "";
+        if (axis === null) openSheet(id);   // never moved: a tap, not a swipe
       }
       axis = null; dx = 0;
     };
@@ -791,6 +839,7 @@
       done: false,
       listId: list ? list.id : null,
       due: draftDue || parsed.due,
+      notes: "",
       createdAt: Date.now(),
       completedAt: null
     };
@@ -818,6 +867,207 @@
     view = seg.dataset.view;
     renderBoard();
     renderCounts();
+  });
+
+  /* ── the task sheet ─────────────────────────────────────────────────── */
+
+  var NOTES_GLYPH =
+    '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+    '<circle cx="3" cy="4" r="1.15"/><circle cx="3" cy="8" r="1.15"/><circle cx="3" cy="12" r="1.15"/>' +
+    '<path d="M6.6 4h7M6.6 8h7M6.6 12h4.4"/></svg>';
+
+  /** How many lines of actual writing a note holds. Blank lines do not count. */
+  function noteLines(notes) {
+    if (!notes) return 0;
+    return notes.split("\n").filter(function (line) {
+      return line.replace(/^[•\s]+/, "").trim().length > 0;
+    }).length;
+  }
+
+  var sheetId = null;
+  var saveTimer = null;
+
+  function sheetTask() { return sheetId ? byId(sheetId) : null; }
+
+  /** Writes are debounced: typing a note should not re-render the board on
+      every keystroke, but nothing may be lost when the sheet closes. */
+  function saveSoon() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 400);
+  }
+
+  function saveNow() {
+    clearTimeout(saveTimer);
+    var task = sheetTask();
+    if (!task) return;
+    var title = $sheetTitle.value.trim();
+    if (title) task.title = title;        // an empty title would lose the task
+    task.notes = $notes.value;
+    commit();
+  }
+
+  function growNotes() {
+    $notes.style.height = "auto";
+    $notes.style.height = Math.min($notes.scrollHeight, 340) + "px";
+  }
+
+  function chip(label, on, onPick) {
+    var b = el("button", "chip", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(on));
+    b.onclick = onPick;
+    return b;
+  }
+
+  function renderSheetDates() {
+    var task = sheetTask();
+    if (!task) return;
+    $sheetDates.innerHTML = "";
+    var options = [
+      ["No date", null], ["Today", keyPlus(0)], ["Tomorrow", keyPlus(1)], ["Next week", keyPlus(7)]
+    ];
+    options.forEach(function (opt) {
+      $sheetDates.append(chip(opt[0], task.due === opt[1], function () {
+        task.due = opt[1];
+        commit();
+        renderSheetDates();
+      }));
+    });
+
+    // Anything that is not one of the quick picks gets the date itself as its label.
+    var quick = options.map(function (o) { return o[1]; });
+    var custom = task.due && quick.indexOf(task.due) < 0;
+    var picker = el("label", "chip");
+    picker.setAttribute("aria-pressed", String(!!custom));
+    picker.append(document.createTextNode(custom ? shortDate(task.due) : "Pick a date"));
+    var field = el("input", "date-field");
+    field.type = "date";
+    field.id = "sheet-date-picker";
+    if (task.due) field.value = task.due;
+    field.onchange = function () {
+      task.due = field.value || null;
+      commit();
+      renderSheetDates();
+    };
+    picker.append(field);
+    $sheetDates.append(picker);
+  }
+
+  function renderSheetLists() {
+    var task = sheetTask();
+    if (!task) return;
+    $sheetLists.innerHTML = "";
+    state.lists.forEach(function (list) {
+      var on = task.listId === list.id;
+      var b = chip("", on, function () {
+        task.listId = list.id;
+        commit();
+        renderSheetLists();
+      });
+      var dot = el("span", "swatch");
+      dot.style.background = list.color;
+      b.append(dot, document.createTextNode(list.name));
+      $sheetLists.append(b);
+    });
+  }
+
+  function openSheet(id) {
+    var task = byId(id);
+    if (!task) return;
+    sheetId = id;
+    $sheetTitle.value = task.title;
+    $notes.value = task.notes || "";
+    renderSheetDates();
+    renderSheetLists();
+    $sheetWrap.hidden = false;
+    requestAnimationFrame(function () {
+      $sheetWrap.classList.add("open");
+      growNotes();
+    });
+  }
+
+  function closeSheet() {
+    if (!sheetId) return;
+    saveNow();
+    sheetId = null;
+    $sheetWrap.classList.remove("open");
+    setTimeout(function () { $sheetWrap.hidden = true; }, 240);
+  }
+
+  /* ── bullets ─────────────────────────────────────────────────────────
+     A plain textarea rather than a contenteditable: on Android, contenteditable
+     fights the keyboard and mangles right-to-left text. Bullets are therefore
+     just a "• " prefix on a line, which also means notes stay readable text. */
+
+  function lineAround(value, pos) {
+    var start = value.lastIndexOf("\n", pos - 1) + 1;
+    var end = value.indexOf("\n", pos);
+    return [start, end < 0 ? value.length : end];
+  }
+
+  function toggleBullet() {
+    var v = $notes.value;
+    var pos = $notes.selectionStart;
+    var at = lineAround(v, pos);
+    var line = v.slice(at[0], at[1]);
+    var next, shift;
+    if (/^•\s?/.test(line)) {
+      next = line.replace(/^•\s?/, "");
+      shift = next.length - line.length;
+    } else {
+      next = "• " + line;
+      shift = 2;
+    }
+    $notes.value = v.slice(0, at[0]) + next + v.slice(at[1]);
+    var caret = Math.max(at[0], pos + shift);
+    $notes.setSelectionRange(caret, caret);
+    $notes.focus();
+    growNotes();
+    saveSoon();
+  }
+
+  document.getElementById("bullet-btn").onclick = toggleBullet;
+
+  $notes.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    if ($notes.selectionStart !== $notes.selectionEnd) return;
+    var v = $notes.value;
+    var pos = $notes.selectionStart;
+    var at = lineAround(v, pos);
+    var line = v.slice(at[0], at[1]);
+    if (!/^•\s?/.test(line)) return;      // not a bullet: let return do its normal thing
+    e.preventDefault();
+    if (!line.replace(/^•\s?/, "").trim()) {
+      // Return on an empty bullet ends the list rather than making another one.
+      $notes.value = v.slice(0, at[0]) + v.slice(at[1]);
+      $notes.setSelectionRange(at[0], at[0]);
+    } else {
+      $notes.value = v.slice(0, pos) + "\n• " + v.slice(pos);
+      $notes.setSelectionRange(pos + 3, pos + 3);
+    }
+    growNotes();
+    saveSoon();
+  });
+
+  $notes.addEventListener("input", function () { growNotes(); saveSoon(); });
+  $sheetTitle.addEventListener("input", saveSoon);
+  $sheetTitle.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); $sheetTitle.blur(); }
+  });
+
+  document.getElementById("scrim").onclick = closeSheet;
+  document.getElementById("sheet-done").onclick = closeSheet;
+  document.getElementById("sheet-delete").onclick = function () {
+    var id = sheetId;
+    sheetId = null;                        // closing must not re-save a deleted task
+    clearTimeout(saveTimer);
+    $sheetWrap.classList.remove("open");
+    setTimeout(function () { $sheetWrap.hidden = true; }, 240);
+    removeTask(id);
+  };
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && sheetId) closeSheet();
   });
 
   /* ── boot ───────────────────────────────────────────────────────────── */
