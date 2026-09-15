@@ -86,6 +86,30 @@ jobs:
             echo "::warning::Built with the debug key — ANDROID_KEYSTORE_BASE64 is not set, so this build will not install over a signed one."
           fi
 
+      # A certificate fingerprint is public information, so pinning it here is
+      # safe — and it turns "the secret was probably picked up" into something
+      # the build proves on every run.
+      - name: Check which key signed it
+        run: |
+          EXPECTED=bedebedb4c446f1ca3eaad03130e1e23372256150f6ceca980575f4852ab9b04
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::warning::apksigner not found; signature not verified."
+            exit 0
+          fi
+          ACTUAL=$("$APKSIGNER" verify --print-certs "dist/spa-workd-${{ github.run_number }}.apk" \
+            | grep -i 'certificate SHA-256 digest' | head -1 | awk '{print $NF}')
+          echo "signed by: $ACTUAL"
+          if [ -z "$SPA_KEYSTORE" ]; then
+            echo "::warning::Debug-signed: this build will not install over a signed one."
+            exit 0
+          fi
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "Signed by the wrong key. Expected $EXPECTED" >&2
+            exit 1
+          fi
+          echo "Correctly signed with the spa workd release key."
+
       - uses: actions/upload-artifact@v4
         with:
           name: spa-workd-apk
