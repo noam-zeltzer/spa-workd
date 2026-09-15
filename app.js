@@ -119,6 +119,7 @@
           listId: t.listId ? String(t.listId) : null,
           due: typeof t.due === "string" ? t.due : null,
           notes: typeof t.notes === "string" ? t.notes : "",
+          repeat: t.repeat === "daily" ? "daily" : null,
           createdAt: Number(t.createdAt) || Date.now(),
           completedAt: Number(t.completedAt) || null
         };
@@ -152,6 +153,27 @@
   function listById(id) {
     for (var i = 0; i < state.lists.length; i++) if (state.lists[i].id === id) return state.lists[i];
     return null;
+  }
+
+  /* A daily task is one task that keeps coming back, not a pile of copies.
+     Its due date is simply moved to today: finished yesterday, it returns
+     fresh; missed yesterday, it returns today rather than sitting in Overdue
+     for ever, which is what a habit should do. Today's instance — done or
+     not — is left alone, so ticking one off still files it under Done until
+     the day turns. */
+  function rollDailies() {
+    var today = todayKey();
+    var moved = false;
+    state.tasks.forEach(function (t) {
+      if (t.repeat !== "daily") return;
+      if (!t.due) { t.due = today; moved = true; return; }
+      if (t.due >= today) return;
+      t.due = today;
+      t.done = false;
+      t.completedAt = null;
+      moved = true;
+    });
+    return moved;
   }
 
   function commit() {
@@ -371,7 +393,9 @@
         '<div class="grip"></div>' +
         '<label class="sr-only" for="sheet-title">Task</label>' +
         '<input class="sheet-title" id="sheet-title" dir="auto" enterkeyhint="done">' +
-        '<div class="field"><p class="field-label">When</p>' +
+        '<div class="field"><p class="field-label">Repeats</p>' +
+          '<div class="chips" id="sheet-repeat"></div></div>' +
+        '<div class="field" id="when-field"><p class="field-label">When</p>' +
           '<div class="chips" id="sheet-dates"></div></div>' +
         '<div class="field"><p class="field-label">List</p>' +
           '<div class="chips" id="sheet-lists"></div></div>' +
@@ -406,6 +430,8 @@
   var $sheet = document.getElementById("sheet");
   var $sheetTitle = document.getElementById("sheet-title");
   var $sheetDates = document.getElementById("sheet-dates");
+  var $sheetRepeat = document.getElementById("sheet-repeat");
+  var $whenField = document.getElementById("when-field");
   var $sheetLists = document.getElementById("sheet-lists");
   var $notes = document.getElementById("sheet-notes");
 
@@ -568,7 +594,8 @@
     body.append(title);
 
     var meta = el("div", "meta");
-    if (task.due && !task.done) {
+    // A daily task says "Daily" instead of "Today" — the two together are noise.
+    if (task.due && !task.done && task.repeat !== "daily") {
       var diff = dayDiff(task.due);
       var due = el("span", "due" + (diff < 0 ? " late" : diff === 0 ? " soon" : ""), dueLabel(task.due));
       meta.append(due);
@@ -584,6 +611,12 @@
     /* A task with notes wears a small bulleted-list mark, and the number of
        lines when there is more than one. Enough to tell you something is in
        there; not so much that the list stops being a list. */
+    if (task.repeat === "daily") {
+      var daily = el("span", "daily");
+      daily.innerHTML = DAILY_GLYPH;
+      daily.append(document.createTextNode("Daily"));
+      meta.append(daily);
+    }
     var lines = noteLines(task.notes);
     if (lines) {
       var mark = el("span", "noted");
@@ -721,7 +754,19 @@
   /** Horizontal drag reveals the delete plate and far enough removes the task;
       a press that never travels is a tap, and opens the task. */
   function rowGestures(row, card, id) {
-    var startX = 0, startY = 0, dx = 0, axis = null, active = false;
+    var startX = 0, startY = 0, dx = 0, axis = null, active = false, travelled = false;
+
+    /* Opening happens on the click, not on pointerup. Opening on pointerup put
+       the scrim under the finger before the browser dispatched its follow-up
+       click, so a quick tap opened the sheet and then immediately closed it
+       again — while a long press, where the browser suppresses that click,
+       appeared to work. Handling the click itself means the target is settled
+       before the sheet exists, and nothing else receives it. */
+    card.addEventListener("click", function (e) {
+      if (e.target.closest(".check")) return;
+      if (travelled) { travelled = false; return; }    // that was a swipe
+      openSheet(id);
+    });
 
     card.addEventListener("pointerdown", function (e) {
       if (e.target.closest(".check")) return;
@@ -754,8 +799,8 @@
         removeTask(id);                 // keep the drag offset; the row slides the rest of the way
       } else {
         card.style.transform = "";
-        if (axis === null) openSheet(id);   // never moved: a tap, not a swipe
       }
+      travelled = axis !== null;
       axis = null; dx = 0;
     };
 
@@ -876,6 +921,10 @@
     '<circle cx="3" cy="4" r="1.15"/><circle cx="3" cy="8" r="1.15"/><circle cx="3" cy="12" r="1.15"/>' +
     '<path d="M6.6 4h7M6.6 8h7M6.6 12h4.4"/></svg>';
 
+  var DAILY_GLYPH =
+    '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+    '<path d="M13.7 8a5.7 5.7 0 1 1-1.7-4"/><path d="M13.8 1.9v3.2h-3.2"/></svg>';
+
   /** How many lines of actual writing a note holds. Blank lines do not count. */
   function noteLines(notes) {
     if (!notes) return 0;
@@ -953,6 +1002,35 @@
     $sheetDates.append(picker);
   }
 
+  function renderSheetRepeat() {
+    var task = sheetTask();
+    if (!task) return;
+    var daily = task.repeat === "daily";
+    $sheetRepeat.innerHTML = "";
+
+    $sheetRepeat.append(chip("Once", !daily, function () {
+      task.repeat = null;
+      commit();
+      renderSheetRepeat();
+      renderSheetDates();
+    }));
+
+    var every = chip("", daily, function () {
+      task.repeat = "daily";
+      task.due = todayKey();        // a daily task starts today and moves itself on
+      commit();
+      renderSheetRepeat();
+      renderSheetDates();
+    });
+    var glyph = el("span", "chip-glyph");
+    glyph.innerHTML = DAILY_GLYPH;
+    every.append(glyph, document.createTextNode("Every day"));
+    $sheetRepeat.append(every);
+
+    // A daily task's date is "every day", so offering a date as well would lie.
+    $whenField.hidden = daily;
+  }
+
   function renderSheetLists() {
     var task = sheetTask();
     if (!task) return;
@@ -977,6 +1055,7 @@
     sheetId = id;
     $sheetTitle.value = task.title;
     $notes.value = task.notes || "";
+    renderSheetRepeat();
     renderSheetDates();
     renderSheetLists();
     $sheetWrap.hidden = false;
@@ -1072,6 +1151,9 @@
 
   /* ── boot ───────────────────────────────────────────────────────────── */
 
+  // Bring every daily task up to today before the first paint.
+  if (rollDailies()) { state.updatedAt = Date.now(); writeLocal(state); }
+
   renderLists();
   renderBoard();
   renderChips();
@@ -1089,6 +1171,7 @@
   setInterval(function () {
     if (todayKey() === day) return;
     day = todayKey();
+    if (rollDailies()) { commit(); return; }   // commit already re-renders
     renderBoard();
     renderCounts();
   }, 60000);
