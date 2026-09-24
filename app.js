@@ -120,6 +120,8 @@
           due: typeof t.due === "string" ? t.due : null,
           notes: typeof t.notes === "string" ? t.notes : "",
           repeat: t.repeat === "daily" ? "daily" : null,
+          time: /^\d\d:\d\d$/.test(t.time) ? t.time : null,
+          duration: Math.min(Math.max(Number(t.duration) || 60, 15), 720),
           createdAt: Number(t.createdAt) || Date.now(),
           completedAt: Number(t.completedAt) || null
         };
@@ -142,7 +144,10 @@
   var view = "today";
   var activeList = "all";
   var draftDue = null;
+  var draftTime = null;
   var draftListId = null;
+  var mode = "tasks";              // "tasks" or "calendar"
+  var calDay = todayKey();
   var pending = Object.create(null);
 
   function byId(id) {
@@ -181,8 +186,13 @@
     writeLocal(state);
     pushRemote();
     syncReminders();
-    renderBoard();
-    renderCounts();
+    if (mode === "calendar") {
+      renderDayStrip();
+      renderCalendar();
+    } else {
+      renderBoard();
+      renderCounts();
+    }
   }
 
   /* ── reminders (Android build only) ─────────────────────────────────── */
@@ -355,26 +365,53 @@
 
   var MARK = sofa("mark");
 
+  var CAL_GLYPH =
+    '<svg viewBox="0 0 16 16" aria-hidden="true" class="glyph">' +
+    '<rect x="1.8" y="3" width="12.4" height="11.2" rx="2.2"/>' +
+    '<path d="M1.8 6.4h12.4M5.2 1.6v2.6M10.8 1.6v2.6"/></svg>';
+
+  var LIST_GLYPH =
+    '<svg viewBox="0 0 16 16" aria-hidden="true" class="glyph">' +
+    '<path d="M5.6 4.2h8.6M5.6 8h8.6M5.6 11.8h8.6"/>' +
+    '<circle cx="2.4" cy="4.2" r="1.05"/><circle cx="2.4" cy="8" r="1.05"/>' +
+    '<circle cx="2.4" cy="11.8" r="1.05"/></svg>';
+
   var SEGMENTS = [["today", "Today"], ["upcoming", "Upcoming"], ["all", "All"], ["done", "Done"]];
 
   document.getElementById("app").innerHTML =
     '<div class="wash"></div>' +
     '<div class="app">' +
       '<header class="masthead">' + MARK +
-        '<div><h1 class="wordmark"><img src="icons/wordmark.png" alt="spa workd"></h1>' +
+        '<div class="brandtext"><h1 class="wordmark"><img src="icons/wordmark.png" alt="spa workd"></h1>' +
         '<p class="standfirst" id="standfirst"></p></div>' +
+        '<button class="jump" id="jump" type="button" aria-label="Open the calendar">' +
+          CAL_GLYPH +
+        "</button>" +
       "</header>" +
       '<div class="deck">' +
-        '<div class="segs" id="segs" role="tablist" aria-label="Which tasks to show">' +
-          '<span class="seg-pill" id="seg-pill"></span>' +
-          SEGMENTS.map(function (s) {
-            return '<button class="seg" role="tab" type="button" data-view="' + s[0] + '" aria-selected="false">' +
-              s[1] + '<span class="tally"></span></button>';
-          }).join("") +
+        '<div class="modes" id="modes" role="tablist" aria-label="Tasks or calendar">' +
+          '<button class="mode" type="button" role="tab" data-mode="tasks" aria-selected="true">' +
+            LIST_GLYPH + "Tasks</button>" +
+          '<button class="mode" type="button" role="tab" data-mode="calendar" aria-selected="false">' +
+            CAL_GLYPH + "Calendar</button>" +
         "</div>" +
-        '<div class="lists" id="lists"></div>' +
+        '<div class="task-controls" id="task-controls">' +
+          '<div class="segs" id="segs" role="tablist" aria-label="Which tasks to show">' +
+            '<span class="seg-pill" id="seg-pill"></span>' +
+            SEGMENTS.map(function (s) {
+              return '<button class="seg" role="tab" type="button" data-view="' + s[0] + '" aria-selected="false">' +
+                s[1] + '<span class="tally"></span></button>';
+            }).join("") +
+          "</div>" +
+          '<div class="lists" id="lists"></div>' +
+        "</div>" +
+        '<div class="daystrip" id="daystrip" hidden></div>' +
       "</div>" +
       '<main class="board" id="board"></main>' +
+      '<main class="calendar" id="calendar" hidden>' +
+        '<div class="loose" id="loose"></div>' +
+        '<div class="timeline" id="timeline"></div>' +
+      "</main>" +
     "</div>" +
     '<form class="composer" id="composer" autocomplete="off">' +
       '<div class="extras"><div><div class="chips" id="chips"></div></div></div>' +
@@ -397,6 +434,10 @@
           '<div class="chips" id="sheet-repeat"></div></div>' +
         '<div class="field" id="when-field"><p class="field-label">When</p>' +
           '<div class="chips" id="sheet-dates"></div></div>' +
+        '<div class="field"><p class="field-label">Time</p>' +
+          '<div class="chips" id="sheet-times"></div></div>' +
+        '<div class="field" id="length-field"><p class="field-label">Lasts</p>' +
+          '<div class="chips" id="sheet-length"></div></div>' +
         '<div class="field"><p class="field-label">List</p>' +
           '<div class="chips" id="sheet-lists"></div></div>' +
         '<div class="field">' +
@@ -431,9 +472,19 @@
   var $sheetTitle = document.getElementById("sheet-title");
   var $sheetDates = document.getElementById("sheet-dates");
   var $sheetRepeat = document.getElementById("sheet-repeat");
+  var $sheetTimes = document.getElementById("sheet-times");
+  var $sheetLength = document.getElementById("sheet-length");
+  var $lengthField = document.getElementById("length-field");
   var $whenField = document.getElementById("when-field");
   var $sheetLists = document.getElementById("sheet-lists");
   var $notes = document.getElementById("sheet-notes");
+  var $taskControls = document.getElementById("task-controls");
+  var $dayStrip = document.getElementById("daystrip");
+  var $calendar = document.getElementById("calendar");
+  var $loose = document.getElementById("loose");
+  var $timeline = document.getElementById("timeline");
+  var $modes = document.getElementById("modes");
+  var $jump = document.getElementById("jump");
 
   /* ── rendering ──────────────────────────────────────────────────────── */
 
@@ -594,6 +645,7 @@
     body.append(title);
 
     var meta = el("div", "meta");
+    if (task.time && !task.done) meta.append(el("span", "at", task.time));
     // A daily task says "Daily" instead of "Today" — the two together are noise.
     if (task.due && !task.done && task.repeat !== "daily") {
       var diff = dayDiff(task.due);
@@ -840,6 +892,11 @@
     picker.append(field);
     $chips.append(picker);
 
+    if (draftTime) {
+      var at = chip(draftTime, true, function () { draftTime = null; renderChips(); });
+      $chips.append(at);
+    }
+
     var list = targetList();
     if (list && state.lists.length > 1) {
       var swap = el("button", "chip");
@@ -884,6 +941,8 @@
       done: false,
       listId: list ? list.id : null,
       due: draftDue || parsed.due,
+      time: draftTime,
+      duration: 60,
       notes: "",
       createdAt: Date.now(),
       completedAt: null
@@ -892,6 +951,7 @@
     $input.value = "";
     $send.disabled = true;
     draftDue = null;
+    draftTime = null;
 
     // Never let a new task land somewhere the current view hides it.
     if (view === "done" || VIEW_BUCKETS[view].indexOf(bucketOf(task)) < 0) view = "all";
@@ -913,6 +973,208 @@
     renderBoard();
     renderCounts();
   });
+
+  /* ── the calendar ───────────────────────────────────────────────────── */
+
+  var DAY_START = 6;        // the grid runs 06:00 to midnight
+  var DAY_END = 24;
+  var HOUR_PX = 58;
+
+  function minutesOf(time) {
+    var p = time.split(":");
+    return Number(p[0]) * 60 + Number(p[1]);
+  }
+
+  function clockLabel(mins) {
+    var h = Math.floor(mins / 60) % 24;
+    var m = mins % 60;
+    return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+  }
+
+  /* A dated task falls on its own day. A daily one falls on every day from
+     its current instance onwards, so the week ahead shows the habit too. */
+  function occursOn(task, key) {
+    if (task.repeat === "daily") return key >= task.due;
+    return task.due === key;
+  }
+
+  function dayTasks(key) {
+    return state.tasks.filter(function (t) {
+      return inActiveList(t) && occursOn(t, key);
+    });
+  }
+
+  function renderDayStrip() {
+    $dayStrip.innerHTML = "";
+    var today = todayKey();
+    for (var offset = -3; offset <= 21; offset++) {
+      (function (off) {
+        var key = keyPlus(off);
+        var parts = key.split("-");
+        var date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        var tab = el("button", "day" + (key === calDay ? " on" : "") + (key === today ? " today" : ""));
+        tab.type = "button";
+        tab.setAttribute("aria-pressed", String(key === calDay));
+        tab.append(
+          el("span", "dow", date.toLocaleDateString(undefined, { weekday: "short" })),
+          el("span", "dom", String(date.getDate()))
+        );
+        var n = dayTasks(key).filter(function (t) { return !t.done; }).length;
+        if (n) {
+          var pips = el("span", "pips");
+          for (var i = 0; i < Math.min(n, 3); i++) pips.append(el("i"));
+          tab.append(pips);
+        }
+        tab.onclick = function () {
+          calDay = key;
+          renderDayStrip();
+          renderCalendar();
+        };
+        $dayStrip.append(tab);
+      })(offset);
+    }
+    var on = $dayStrip.querySelector(".day.on");
+    if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
+  }
+
+  /* Anything overlapping shares the width: each block takes the first lane
+     that is free at its start, which keeps two things at 09:00 side by side
+     instead of one hiding the other. */
+  function laneOut(items) {
+    var lanes = [];
+    items.forEach(function (item) {
+      var placed = false;
+      for (var i = 0; i < lanes.length && !placed; i++) {
+        if (lanes[i] <= item.start) { item.lane = i; lanes[i] = item.end; placed = true; }
+      }
+      if (!placed) { item.lane = lanes.length; lanes.push(item.end); }
+    });
+    return Math.max(lanes.length, 1);
+  }
+
+  function renderCalendar() {
+    var all = dayTasks(calDay);
+
+    // Undated-in-time tasks sit above the grid rather than vanishing from it.
+    var loose = all.filter(function (t) { return !t.time; });
+    $loose.innerHTML = "";
+    if (loose.length) {
+      $loose.append(el("p", "loose-label", "No time set"));
+      var wrap = el("div", "loose-row");
+      loose.forEach(function (t) {
+        var list = listById(t.listId);
+        var chip = el("button", "loose-chip" + (t.done ? " is-done" : ""));
+        chip.type = "button";
+        var dot = el("span", "swatch");
+        dot.style.background = list ? list.color : "var(--teal)";
+        var name = el("span", "loose-title", t.title);
+        name.setAttribute("dir", "auto");
+        chip.append(dot, name);
+        chip.onclick = function () { openSheet(t.id); };
+        wrap.append(chip);
+      });
+      $loose.append(wrap);
+      $loose.hidden = false;
+    } else {
+      $loose.hidden = true;
+    }
+
+    $timeline.innerHTML = "";
+    var grid = el("div", "grid");
+    grid.style.height = (DAY_END - DAY_START) * HOUR_PX + "px";
+    for (var h = DAY_START; h < DAY_END; h++) {
+      var row = el("div", "hour");
+      row.style.top = (h - DAY_START) * HOUR_PX + "px";
+      row.style.height = HOUR_PX + "px";
+      row.append(el("span", "hour-label", clockLabel(h * 60)));
+      grid.append(row);
+    }
+
+    var timed = all.filter(function (t) { return !!t.time; }).map(function (t) {
+      var start = minutesOf(t.time);
+      return { task: t, start: start, end: start + t.duration, lane: 0 };
+    }).sort(function (a, b) { return a.start - b.start; });
+
+    var lanes = laneOut(timed);
+
+    timed.forEach(function (item) {
+      var t = item.task;
+      var list = listById(t.listId);
+      var colour = list ? list.color : "#4B918F";
+      var block = el("button", "block" + (t.done ? " is-done" : ""));
+      block.type = "button";
+      var top = (item.start - DAY_START * 60) / 60 * HOUR_PX;
+      var height = (item.end - item.start) / 60 * HOUR_PX;
+      block.style.top = Math.max(top, 0) + "px";
+      block.style.height = Math.max(height, 30) + "px";
+      block.style.left = "calc(56px + " + (item.lane / lanes * 100) + "% - " + (56 * item.lane / lanes) + "px)";
+      block.style.width = "calc((100% - 56px) / " + lanes + " - 4px)";
+      block.style.borderLeftColor = colour;
+      block.style.background = colour + "1f";
+      var title = el("span", "block-title", t.title);
+      title.setAttribute("dir", "auto");
+      block.append(title);
+      block.append(el("span", "block-time", clockLabel(item.start) + "–" + clockLabel(item.end)));
+      block.onclick = function (e) { e.stopPropagation(); openSheet(t.id); };
+      grid.append(block);
+    });
+
+    // Where "now" is, but only on the day that actually is now.
+    if (calDay === todayKey()) {
+      var now = new Date();
+      var mins = now.getHours() * 60 + now.getMinutes();
+      if (mins >= DAY_START * 60 && mins <= DAY_END * 60) {
+        var line = el("div", "now");
+        line.style.top = (mins - DAY_START * 60) / 60 * HOUR_PX + "px";
+        grid.append(line);
+      }
+    }
+
+    /* Tapping empty grid starts a task at that hour: the composer opens with
+       the day and time already set, so only the title is left to type. */
+    grid.addEventListener("click", function (e) {
+      if (e.target.closest(".block")) return;
+      var box = grid.getBoundingClientRect();
+      var hour = Math.floor((e.clientY - box.top) / HOUR_PX) + DAY_START;
+      hour = Math.min(Math.max(hour, DAY_START), DAY_END - 1);
+      draftDue = calDay;
+      draftTime = clockLabel(hour * 60);
+      renderChips();
+      openComposer(true);
+      $input.focus();
+    });
+
+    $timeline.append(grid);
+  }
+
+  function setMode(next) {
+    mode = next;
+    var calendarOn = mode === "calendar";
+    $taskControls.hidden = calendarOn;
+    $dayStrip.hidden = !calendarOn;
+    $board.hidden = calendarOn;
+    $calendar.hidden = !calendarOn;
+    $jump.setAttribute("aria-label", calendarOn ? "Back to tasks" : "Open the calendar");
+    $jump.innerHTML = calendarOn ? LIST_GLYPH : CAL_GLYPH;
+    var buttons = $modes.querySelectorAll(".mode");
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].setAttribute("aria-selected", String(buttons[i].dataset.mode === mode));
+    }
+    if (calendarOn) {
+      renderDayStrip();
+      renderCalendar();
+    } else {
+      renderBoard();
+      renderCounts();
+    }
+  }
+
+  $modes.addEventListener("click", function (e) {
+    var button = e.target.closest(".mode");
+    if (button) setMode(button.dataset.mode);
+  });
+
+  $jump.onclick = function () { setMode(mode === "calendar" ? "tasks" : "calendar"); };
 
   /* ── the task sheet ─────────────────────────────────────────────────── */
 
@@ -1031,6 +1293,58 @@
     $whenField.hidden = daily;
   }
 
+  function renderSheetTime() {
+    var task = sheetTask();
+    if (!task) return;
+    $sheetTimes.innerHTML = "";
+
+    $sheetTimes.append(chip("No time", !task.time, function () {
+      task.time = null;
+      commit();
+      renderSheetTime();
+    }));
+
+    [["Morning", "09:00"], ["Midday", "12:00"], ["Evening", "18:00"]].forEach(function (opt) {
+      $sheetTimes.append(chip(opt[0], task.time === opt[1], function () {
+        task.time = opt[1];
+        if (!task.due) task.due = todayKey();   // a time needs a day to sit on
+        commit();
+        renderSheetTime();
+        renderSheetDates();
+      }));
+    });
+
+    var quick = ["09:00", "12:00", "18:00"];
+    var custom = task.time && quick.indexOf(task.time) < 0;
+    var picker = el("label", "chip");
+    picker.setAttribute("aria-pressed", String(!!custom));
+    picker.append(document.createTextNode(custom ? task.time : "Pick a time"));
+    var field = el("input", "date-field");
+    field.type = "time";
+    field.id = "sheet-time-picker";
+    if (task.time) field.value = task.time;
+    field.onchange = function () {
+      task.time = field.value || null;
+      if (task.time && !task.due) task.due = todayKey();
+      commit();
+      renderSheetTime();
+      renderSheetDates();
+    };
+    picker.append(field);
+    $sheetTimes.append(picker);
+
+    // How long it lasts only means anything once it has a start.
+    $lengthField.hidden = !task.time;
+    $sheetLength.innerHTML = "";
+    [["30 min", 30], ["1 hour", 60], ["90 min", 90], ["2 hours", 120]].forEach(function (opt) {
+      $sheetLength.append(chip(opt[0], task.duration === opt[1], function () {
+        task.duration = opt[1];
+        commit();
+        renderSheetTime();
+      }));
+    });
+  }
+
   function renderSheetLists() {
     var task = sheetTask();
     if (!task) return;
@@ -1057,6 +1371,7 @@
     $notes.value = task.notes || "";
     renderSheetRepeat();
     renderSheetDates();
+    renderSheetTime();
     renderSheetLists();
     $sheetWrap.hidden = false;
     requestAnimationFrame(function () {
