@@ -59,6 +59,8 @@
   .vol:disabled { opacity:.35; }
   .panel .done { display:block; width:100%; height:48px; border-radius:24px; margin-top:12px; font-size:18px;
                  background:linear-gradient(180deg,#ff6b8a,#e0234f); border:2px solid #ffb3c4; box-shadow:0 5px 0 #7d0c25; }
+  .panel .test { display:block; width:100%; height:42px; border-radius:21px; margin-top:8px; font-size:16px; }
+  .panel .status { text-align:center; font-size:13px; margin-top:8px; min-height:18px; line-height:1.5; }
   .panel .hint { text-align:center; font-size:12px; opacity:.5; margin-top:10px; }
   @media (max-width:600px) { #gear { width:38px; height:38px; font-size:18px; } }
 </style>
@@ -75,6 +77,8 @@
         <input type="range" class="vol" id="volMusic" min="0" max="100" aria-label="עוצמת מוזיקה">
         <label class="opt"><span>🔊 אפקטים קוליים</span><input type="checkbox" class="switch" id="optSfx"></label>
         <input type="range" class="vol" id="volSfx" min="0" max="100" aria-label="עוצמת אפקטים">
+        <button class="test" id="testSound">🔈 בדיקת סאונד</button>
+        <div class="status" id="soundStatus"></div>
         <button class="done" id="closeSettings">המשך</button>
         <div class="hint">המשחק בהשהיה · Esc לפתוח/לסגור</div>
       </div>
@@ -119,10 +123,24 @@ try { Object.assign(settings, JSON.parse(localStorage.getItem('islandBossAudio')
 function saveSettings() { try { localStorage.setItem('islandBossAudio', JSON.stringify(settings)); } catch (e) {} }
 
 let ac = null, musicBus, sfxBus, noiseBuf;
+// iPhones mute Web Audio when the ring switch is on silent unless the page asks for "playback";
+// older iOS needs a looping silent <audio> element for the same effect.
+let silentEl = null;
+function silentWavUrl() {
+  const n = 2205, b = new ArrayBuffer(44 + n*2), v = new DataView(b), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + n*2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 22050, true); v.setUint32(28, 44100, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n*2, true);
+  return URL.createObjectURL(new Blob([b], { type:'audio/wav' }));
+}
 function initAudio() {
-  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  if (!silentEl) { try { silentEl = new Audio(silentWavUrl()); silentEl.loop = true; silentEl.setAttribute('playsinline', ''); silentEl.play().catch(() => { silentEl = null; }); } catch (e) { silentEl = null; } }
+  if (ac) { if (ac.state !== 'running') ac.resume().then(updateSoundStatus, () => {}); return; }
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
   ac = new AC();
+  ac.onstatechange = updateSoundStatus;
+  if (ac.state !== 'running') ac.resume().catch(() => {});
+  { const sb = ac.createBufferSource(); sb.buffer = ac.createBuffer(1, 1, 22050); sb.connect(ac.destination); sb.start(0); } // unlock tick
   const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.connect(ac.destination);
   musicBus = ac.createGain(); sfxBus = ac.createGain(); musicBus.connect(comp); sfxBus.connect(comp);
   noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
@@ -1018,7 +1036,7 @@ function syncSettingsUI() {
   volMusic.value = Math.round(settings.musicVol*100); volSfx.value = Math.round(settings.sfxVol*100);
   volMusic.disabled = !settings.music; volSfx.disabled = !settings.sfx;
 }
-function openSettings() { initAudio(); syncSettingsUI(); setEl.hidden = false; paused = true; for (const k in keys) keys[k] = false; document.querySelectorAll('#pad .on').forEach(b => b.classList.remove('on')); }
+function openSettings() { initAudio(); syncSettingsUI(); updateSoundStatus(); setEl.hidden = false; paused = true; for (const k in keys) keys[k] = false; document.querySelectorAll('#pad .on').forEach(b => b.classList.remove('on')); }
 function closeSettings() { setEl.hidden = true; paused = false; SFX.click(); }
 function settingChanged() {
   settings.music = optMusic.checked; settings.sfx = optSfx.checked;
@@ -1026,16 +1044,31 @@ function settingChanged() {
   volMusic.disabled = !settings.music; volSfx.disabled = !settings.sfx;
   applyVolumes(); saveSettings();
 }
-optMusic.addEventListener('change', settingChanged); optSfx.addEventListener('change', () => { settingChanged(); SFX.click(); });
+optMusic.addEventListener('change', () => { settingChanged(); updateSoundStatus(); }); optSfx.addEventListener('change', () => { settingChanged(); SFX.click(); updateSoundStatus(); });
 volMusic.addEventListener('input', settingChanged); volSfx.addEventListener('input', settingChanged); volSfx.addEventListener('change', () => SFX.shoot());
 document.getElementById('gear').addEventListener('click', e => { e.stopPropagation(); setEl.hidden ? openSettings() : closeSettings(); });
 document.getElementById('closeSettings').addEventListener('click', closeSettings);
 setEl.addEventListener('pointerdown', e => { if (e.target === setEl) closeSettings(); });
 addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') setEl.hidden ? openSettings() : closeSettings(); });
 // browsers only allow sound after a tap, so the menu music starts on the first one
+// (Safari only counts some of these events as a real tap, so listen to all of them, and keep retrying until the sound is running)
 const firstGesture = () => { initAudio(); if (!Music.mode && state === 'menu') musicPlay('menu'); };
-addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
-document.addEventListener('visibilitychange', () => { if (!ac) return; document.hidden ? ac.suspend() : ac.resume(); });
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) addEventListener(ev, firstGesture, true);
+function updateSoundStatus() {
+  const el = document.getElementById('soundStatus'); if (!el) return;
+  if (!ac) el.textContent = 'הסאונד עוד לא הופעל – לחץ על בדיקת סאונד';
+  else if (ac.state !== 'running') el.textContent = '⚠️ הדפדפן חוסם את הסאונד – לחץ על בדיקת סאונד';
+  else if (!settings.music && !settings.sfx) el.textContent = '🔇 גם המוזיקה וגם האפקטים כבויים';
+  else el.innerHTML = '✅ הסאונד פעיל<br><span style="opacity:.6">לא שומע? בדוק את עוצמת השמע של המכשיר</span>';
+}
+document.getElementById('testSound').addEventListener('click', () => {
+  initAudio(); const was = settings.sfx; settings.sfx = true; applyVolumes(); SFX.win(); settings.sfx = was;
+  setTimeout(applyVolumes, 1500); setTimeout(updateSoundStatus, 150);
+});
+document.addEventListener('visibilitychange', () => {
+  if (silentEl) document.hidden ? silentEl.pause() : silentEl.play().catch(() => {});
+  if (ac) document.hidden ? ac.suspend() : ac.resume();
+});
 
 reset(); state = 'menu';
 let last = performance.now();

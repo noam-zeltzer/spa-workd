@@ -38,6 +38,9 @@ self.addEventListener("activate", function (event) {
 self.addEventListener("fetch", function (event) {
   var request = event.request;
   if (request.method !== "GET") return;
+  // The game in game/ is its own page; leave it to the network so it never
+  // lands in this cache as the app's index.html.
+  if (new URL(request.url).pathname.indexOf("/game/") !== -1) return;
 
   // Navigations: network first so a deploy lands, shell from cache when offline.
   if (request.mode === "navigate") {
