@@ -42,12 +42,43 @@
   #overlay .start:active { transform:translateY(4px); box-shadow:0 2px 0 #7d0c25; }
   .keys { font-size:12px; opacity:.55; }
   @media (max-width:600px) { button { width:54px; height:54px; font-size:19px; } [data-k="shoot"] { width:66px; height:66px; } }
+  #gear { position:absolute; top:12px; left:12px; width:44px; height:44px; font-size:22px; z-index:5; }
+  #settings { position:absolute; inset:0; z-index:6; display:flex; align-items:center; justify-content:center; background:rgba(3,3,12,.6);
+              backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+  #settings[hidden] { display:none; }
+  .panel { width:min(340px, 92%); padding:22px 22px 18px; border-radius:22px; background:linear-gradient(170deg,#232a5c,#11142e);
+           border:1px solid rgba(255,255,255,.15); box-shadow:0 20px 50px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.12); }
+  .panel h2 { margin:0 0 14px; font-size:22px; text-align:center; }
+  .opt { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 4px 6px; font-size:17px; font-weight:600; cursor:pointer; }
+  .switch { appearance:none; -webkit-appearance:none; width:52px; height:30px; border-radius:15px; background:#3a3f6a; position:relative; cursor:pointer;
+            transition:background .2s; margin:0; flex:none; box-shadow:inset 0 2px 4px rgba(0,0,0,.4); }
+  .switch::after { content:''; position:absolute; top:3px; right:3px; width:24px; height:24px; border-radius:50%; background:#fff; transition:right .2s; box-shadow:0 2px 4px rgba(0,0,0,.4); }
+  .switch:checked { background:linear-gradient(90deg,#2fbf4a,#8dff7a); }
+  .switch:checked::after { right:25px; }
+  .vol { width:100%; accent-color:#8dff7a; margin:2px 0 8px; direction:ltr; }
+  .vol:disabled { opacity:.35; }
+  .panel .done { display:block; width:100%; height:48px; border-radius:24px; margin-top:12px; font-size:18px;
+                 background:linear-gradient(180deg,#ff6b8a,#e0234f); border:2px solid #ffb3c4; box-shadow:0 5px 0 #7d0c25; }
+  .panel .hint { text-align:center; font-size:12px; opacity:.5; margin-top:10px; }
+  @media (max-width:600px) { #gear { width:38px; height:38px; font-size:18px; } }
 </style>
 </head>
 <body>
 <div id="wrap">
   <div id="stage">
     <canvas id="c"></canvas>
+    <button id="gear" aria-label="הגדרות">⚙️</button>
+    <div id="settings" hidden>
+      <div class="panel">
+        <h2>⚙️ הגדרות</h2>
+        <label class="opt"><span>🎵 מוזיקה</span><input type="checkbox" class="switch" id="optMusic"></label>
+        <input type="range" class="vol" id="volMusic" min="0" max="100" aria-label="עוצמת מוזיקה">
+        <label class="opt"><span>🔊 אפקטים קוליים</span><input type="checkbox" class="switch" id="optSfx"></label>
+        <input type="range" class="vol" id="volSfx" min="0" max="100" aria-label="עוצמת אפקטים">
+        <button class="done" id="closeSettings">המשך</button>
+        <div class="hint">המשחק בהשהיה · Esc לפתוח/לסגור</div>
+      </div>
+    </div>
     <div id="overlay">
       <div class="portrait"><img id="ovImg" alt=""></div>
       <h1 id="ovTitle">קרב על האי המעופף</h1>
@@ -81,6 +112,126 @@ document.getElementById('ovImg').src = BOSS_SRC;
 
 function mk(w, h) { const c = document.createElement('canvas'); c.width = Math.ceil(w*DPR); c.height = Math.ceil(h*DPR); const g = c.getContext('2d'); g.scale(DPR, DPR); c.lw = w; c.lh = h; return [c, g]; }
 function seeded(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- audio: everything is synthesized, no sound files ----------
+const settings = { music:true, sfx:true, musicVol:.6, sfxVol:.8 };
+try { Object.assign(settings, JSON.parse(localStorage.getItem('islandBossAudio') || '{}')); } catch (e) {}
+function saveSettings() { try { localStorage.setItem('islandBossAudio', JSON.stringify(settings)); } catch (e) {} }
+
+let ac = null, musicBus, sfxBus, noiseBuf;
+function initAudio() {
+  if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  ac = new AC();
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.connect(ac.destination);
+  musicBus = ac.createGain(); sfxBus = ac.createGain(); musicBus.connect(comp); sfxBus.connect(comp);
+  noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1;
+  applyVolumes();
+}
+function applyVolumes() {
+  if (!ac) return;
+  musicBus.gain.setTargetAtTime(settings.music ? settings.musicVol*.55 : 0, ac.currentTime, .05);
+  sfxBus.gain.setTargetAtTime(settings.sfx ? settings.sfxVol : 0, ac.currentTime, .02);
+}
+const mtof = m => 440*Math.pow(2, (m - 69)/12);
+function env(g, t, a, peak, d) { g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(.0002, peak), t + a); g.gain.exponentialRampToValueAtTime(.0001, t + a + d); }
+function tone(type, f0, f1, dur, vol, bus = sfxBus, t = ac.currentTime, o2 = {}) {
+  const o = ac.createOscillator(), g = ac.createGain(); o.type = type;
+  o.frequency.setValueAtTime(f0, t); if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  if (o2.detune) o.detune.value = o2.detune;
+  let n = o;
+  if (o2.lp) { const f = ac.createBiquadFilter(); f.frequency.value = o2.lp; f.Q.value = o2.q || 1; o.connect(f); n = f; }
+  env(g, t, o2.a || .004, vol, dur); n.connect(g).connect(bus);
+  if (o2.vib) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = o2.vib; lg.gain.value = o2.vibDepth || 8; l.connect(lg).connect(o.frequency); l.start(t); l.stop(t + dur + .1); }
+  o.start(t); o.stop(t + (o2.a || .004) + dur + .05);
+}
+function noise(dur, vol, type = 'lowpass', f0 = 2000, f1, bus = sfxBus, t = ac.currentTime, q = 1) {
+  const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+  s.buffer = noiseBuf; s.loop = true; f.type = type; f.frequency.setValueAtTime(f0, t); if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur); f.Q.value = q;
+  env(g, t, .003, vol, dur); s.connect(f).connect(g).connect(bus); s.start(t, Math.random()*.5); s.stop(t + dur + .05);
+}
+const lastPlayed = {};
+function gate(name, gap) { const n = ac.currentTime; if (lastPlayed[name] && n - lastPlayed[name] < gap) return false; lastPlayed[name] = n; return true; }
+const ok = () => ac && settings.sfx;
+
+const SFX = {
+  click()    { if (!ok()) return; tone('square', 900, 1300, .05, .08); },
+  shoot()    { if (!ok() || !gate('shoot', .05)) return; tone('square', 1100, 380, .08, .05, sfxBus, undefined, { lp:3500 }); noise(.04, .04, 'highpass', 4000); },
+  bossHit()  { if (!ok() || !gate('bhit', .07)) return; tone('triangle', 240, 90, .09, .16); noise(.05, .08, 'lowpass', 1800); },
+  jump(n)    { if (!ok()) return; n ? tone('square', 450, 1000, .13, .06, sfxBus, undefined, { lp:2500 }) : tone('square', 260, 620, .12, .07, sfxBus, undefined, { lp:2000 }); },
+  land()     { if (!ok() || !gate('land', .1)) return; noise(.07, .12, 'lowpass', 500); },
+  dash()     { if (!ok()) return; noise(.22, .2, 'bandpass', 3000, 500, sfxBus, undefined, 2); },
+  shield()   { if (!ok()) return; tone('sine', 500, 1300, .35, .12); tone('triangle', 1000, 1800, .3, .05, sfxBus, ac.currentTime + .05); },
+  block()    { if (!ok() || !gate('block', .08)) return; tone('triangle', 1500, 1200, .1, .09); tone('sine', 2200, 0, .15, .04); },
+  hurt()     { if (!ok()) return; tone('sawtooth', 300, 70, .28, .13, sfxBus, undefined, { lp:1500 }); noise(.12, .12, 'lowpass', 1200); },
+  fall()     { if (!ok()) return; tone('sine', 1400, 140, .9, .14, sfxBus, undefined, { vib:9, vibDepth:20 }); }, // slide whistle
+  respawn()  { if (!ok()) return; const t = ac.currentTime; [60, 64, 67, 72].forEach((m, i) => tone('triangle', mtof(m + 12), 0, .12, .07, sfxBus, t + i*.06)); },
+  ultReady() { if (!ok()) return; const t = ac.currentTime; [76, 79, 84, 88].forEach((m, i) => tone('square', mtof(m), 0, .1, .05, sfxBus, t + i*.07, { lp:4000 })); },
+  ult()      { if (!ok()) return; const t = ac.currentTime;
+               tone('sine', 150, 1400, .5, .2, sfxBus, t); tone('sawtooth', 70, 40, 1.7, .22, sfxBus, t + .1, { lp:900, a:.08 });
+               tone('sawtooth', 73, 41, 1.7, .18, sfxBus, t + .1, { lp:900, a:.08 }); noise(1.6, .22, 'bandpass', 1200, 400, sfxBus, t + .1, .8); },
+  bossShot() { if (!ok() || !gate('bshot', .09)) return; tone('sine', 620, 240, .13, .1); },
+  toss()     { if (!ok() || !gate('toss', .1)) return; noise(.12, .1, 'bandpass', 700, 2200, sfxBus, undefined, 3); },
+  charge()   { if (!ok()) return; tone('sawtooth', 120, 900, .9, .08, sfxBus, undefined, { lp:2000 }); },
+  slam()     { if (!ok()) return; tone('sine', 140, 28, .6, .4); noise(.5, .3, 'lowpass', 900, 120); },
+  summon()   { if (!ok()) return; const t = ac.currentTime; [0, 4, 7, 12].forEach((s, i) => tone('square', mtof(70 + s), 0, .07, .05, sfxBus, t + i*.05, { lp:3000 })); },
+  pop()      { if (!ok() || !gate('pop', .04)) return; tone('square', 700, 1800, .07, .07, sfxBus, undefined, { lp:4000 }); noise(.05, .06, 'highpass', 2500); },
+  laserCharge() { if (!ok()) return; tone('sawtooth', 200, 1600, 1.0, .06, sfxBus, undefined, { lp:3000, vib:30, vibDepth:40 }); },
+  laser()    { if (!ok()) return; const t = ac.currentTime;
+               tone('sawtooth', 95, 0, 1.7, .14, sfxBus, t, { lp:1400, vib:22, vibDepth:12, a:.02 }); tone('sawtooth', 98, 0, 1.7, .12, sfxBus, t, { lp:1400, a:.02 }); noise(1.7, .08, 'bandpass', 2500, 1500, sfxBus, t, 2); },
+  phase()    { if (!ok()) return; const t = ac.currentTime; noise(1.2, .3, 'lowpass', 2000, 80);
+               [57, 56, 55, 45].forEach((m, i) => tone('sawtooth', mtof(m - 12), 0, i === 3 ? .9 : .22, .14, sfxBus, t + i*.2, { lp:1200 })); },
+  explode()  { if (!ok() || !gate('boom', .12)) return; tone('sine', 120, 30, .5, .25); noise(.45, .22, 'lowpass', 1800, 100); },
+  talk(n)    { if (!ok()) return; const t = ac.currentTime; for (let i = 0; i < Math.min(10, Math.ceil(n/3)); i++) tone('square', 160 + Math.random()*170, 0, .05, .05, sfxBus, t + i*.075, { lp:1400 }); },
+  win()      { if (!ok()) return; const t = ac.currentTime;
+               [[72,0],[76,.12],[79,.24],[84,.36],[79,.6],[84,.72]].forEach(([m, d], i) => tone('square', mtof(m), 0, i === 5 ? .9 : .12, .08, sfxBus, t + d, { lp:5000 }));
+               [[60,0],[67,.36],[72,.72]].forEach(([m, d]) => tone('triangle', mtof(m - 12), 0, .5, .12, sfxBus, t + d)); },
+  lose()     { if (!ok()) return; const t = ac.currentTime; // sad trombone: wah wah wah waaah
+               [[62,0,.38],[61,.42,.38],[60,.84,.38],[59,1.26,1.3]].forEach(([m, d, l], i) => tone('sawtooth', mtof(m - 12), 0, l, .14, sfxBus, t + d, { lp:1100, a:.04, vib:i === 3 ? 6 : 0, vibDepth:5 })); },
+};
+
+// ---------- music: a small step sequencer ----------
+const Music = { mode:null, step:0, nextT:0, timer:null, intensity:0 };
+const CHORDS = [[57, 60, 64], [53, 57, 60], [60, 64, 67], [55, 59, 62]]; // Am F C G
+const MELODY = [76,0,74,76, 72,0,69,0,  72,0,74,72, 69,0,65,0,  67,0,72,0, 76,0,79,0,  74,0,71,74, 79,0,0,0];
+function musicPlay(mode) {
+  Music.mode = mode; Music.step = 0;
+  if (!ac) return;
+  Music.nextT = ac.currentTime + .08;
+  if (!Music.timer) Music.timer = setInterval(scheduleMusic, 25);
+}
+function scheduleMusic() {
+  if (!ac || !Music.mode) return;
+  const bpm = Music.mode === 'menu' ? 92 : 138 + Music.intensity*10, st = 60/bpm/4;
+  if (Music.nextT < ac.currentTime - .2 || !settings.music) { Music.nextT = ac.currentTime + .05; if (!settings.music) return; }
+  while (Music.nextT < ac.currentTime + .12) { playStep(Music.step, Music.nextT, st); Music.step++; Music.nextT += st; }
+}
+function kick(t, v = .5) { tone('sine', 160, 38, .26, v, musicBus, t); }
+function snare(t) { noise(.16, .2, 'bandpass', 1900, 1200, musicBus, t, .9); tone('triangle', 200, 120, .08, .12, musicBus, t); }
+function hat(t, open) { noise(open ? .18 : .035, open ? .06 : .07, 'highpass', 7500, 0, musicBus, t); }
+function playStep(s, t, st) {
+  const bar = Math.floor(s/16) % 4, i = s % 16, ch = CHORDS[bar], I = Music.intensity, B_ = musicBus;
+  if (Music.mode === 'menu') {
+    if (i === 0) { for (const m of ch) { tone('sawtooth', mtof(m), 0, st*15, .022, B_, t, { lp:900, a:.4, detune:-7 }); tone('sawtooth', mtof(m), 0, st*15, .022, B_, t, { lp:900, a:.4, detune:7 }); }
+                   tone('sine', mtof(ch[0] - 24), 0, st*15, .14, B_, t, { a:.1 }); }
+    if (i % 2 === 0) tone('triangle', mtof(ch[(i/2) % 3] + 12 + (i >= 8 ? 12 : 0)), 0, st*1.6, .05, B_, t);
+    if (i % 4 === 2) hat(t);
+    return;
+  }
+  // battle
+  if (i % 4 === 0) kick(t); else if (I >= 2 && i % 4 === 3 && Math.random() < .3) kick(t, .3);
+  if (i === 4 || i === 12) snare(t);
+  if (I >= 1 ? true : i % 2 === 0) hat(t, i === 14);
+  if (I >= 2 && i === 0 && bar === 0) noise(1.2, .08, 'highpass', 5000, 0, B_, t); // crash
+  if (i % 2 === 0) tone('sawtooth', mtof(ch[0] - 24 + (i % 4 === 2 ? 12 : 0)), 0, st*1.5, .13, B_, t, { lp:500 + I*350, q:4 });
+  if (i === 0 && I === 0) for (const m of ch) tone('sawtooth', mtof(m), 0, st*15, .015, B_, t, { lp:1200, a:.2 });
+  if (I >= 1) { const arp = [ch[0], ch[1], ch[2], ch[0] + 12, ch[1] + 12, ch[2] + 12]; tone('square', mtof(arp[i % 6] + 12), 0, st*.8, .022, B_, t, { lp:3200 }); }
+  if (i % 2 === 0) { const m = MELODY[bar*8 + i/2];
+    if (m) { const len = st*(MELODY[bar*8 + i/2 + 1] === 0 ? 3.6 : 1.7);
+      if (I === 0) tone('triangle', mtof(m), 0, len, .06, B_, t, { vib:5, vibDepth:3 });
+      else { tone('square', mtof(m), 0, len, .045, B_, t, { lp:2600, vib:6, vibDepth:4 }); if (I >= 2) tone('sawtooth', mtof(m + 12), 0, len, .025, B_, t, { lp:3000, detune:8 }); } } }
+}
 
 // ---------- input ----------
 const keys = {}, pressed = {};
@@ -281,7 +432,7 @@ function reset() {
   bubble = { text:'אה. עוד אחד. 🙄', t:2.5 };
 }
 
-function say(t, d=2.2) { bubble = { text:t, t:d }; }
+function say(t, d=2.2) { bubble = { text:t, t:d }; SFX.talk(t.length); }
 const rnd = (a,b) => a + Math.random()*(b-a);
 const pick = a => a[Math.floor(Math.random()*a.length)];
 function burst(x,y,n,col,sp=260,life=.6,size=4,glow=true) {
@@ -293,7 +444,7 @@ function popText(x,y,t,col='#fff',size=18) { texts.push({x,y,t,col,size,life:1,v
 // ---------- player ----------
 function surfaces() { return [ISLAND, ...PLATS]; }
 function groundBelow(x, y) { let best = null; for (const s of surfaces()) if (x > s.x-6 && x < s.x+s.w+6 && s.y >= y-2 && (!best || s.y < best)) best = s.y; return best; }
-function respawn() { Object.assign(P, { x:450, y:200, vx:0, vy:0, inv:2, hp:100 }); ring(450, 200, '#8dff7a', 80, .6); burst(450, 190, 30, '#8dff7a', 260, .7, 4); }
+function respawn() { Object.assign(P, { x:450, y:200, vx:0, vy:0, inv:2, hp:100 }); ring(450, 200, '#8dff7a', 80, .6); SFX.respawn(); burst(450, 190, 30, '#8dff7a', 260, .7, 4); }
 function updatePlayer(dt) {
   const p = P;
   p.shootCd -= dt; p.dashCd -= dt; p.shieldCd -= dt; p.inv -= dt; p.hitT -= dt; p.fireT -= dt;
@@ -310,22 +461,22 @@ function updatePlayer(dt) {
     p.vy += GRAV*dt;
   }
   if (pressed.jump && p.jumps < 2) {
-    p.vy = p.jumps ? -560 : -640; p.squash = .7;
+    p.vy = p.jumps ? -560 : -640; p.squash = .7; SFX.jump(p.jumps);
     if (p.jumps) ring(p.x, p.y, '#bfe9ff', 30, .3, 2); else burst(p.x,p.y,8,'#d9e6c8',120,.35,3,false);
     p.jumps++;
   }
-  if (pressed.dash && p.dashCd <= 0) { p.dashT = .16; p.dashCd = 1.1; p.inv = Math.max(p.inv,.25); ring(p.x, p.y-24, '#8ef', 40, .25, 3); }
-  if (pressed.shield && p.shieldCd <= 0) { p.shieldT = 1.6; p.shieldCd = 5; ring(p.x, p.y-24, '#7cf', 60, .4, 4); }
+  if (pressed.dash && p.dashCd <= 0) { p.dashT = .16; p.dashCd = 1.1; p.inv = Math.max(p.inv,.25); ring(p.x, p.y-24, '#8ef', 40, .25, 3); SFX.dash(); }
+  if (pressed.shield && p.shieldCd <= 0) { p.shieldT = 1.6; p.shieldCd = 5; ring(p.x, p.y-24, '#7cf', 60, .4, 4); SFX.shield(); }
   if (keys.shoot && p.shootCd <= 0) {
     p.shootCd = .14; p.fireT = .06;
     const tx = B.x - p.x, ty = (B.y) - (p.y-28), d = Math.hypot(tx,ty) || 1;
     // aim mostly forward, nudge toward the boss so it is playable with buttons
     let ax = p.face, ay = 0;
     if (Math.sign(tx) === p.face || Math.abs(tx) < 60) { ax = tx/d; ay = ty/d; }
-    bullets.push({ x:p.x+p.face*18, y:p.y-28, vx:ax*760, vy:ay*760, r:6, dmg:12, life:1.2, tr:[] });
+    bullets.push({ x:p.x+p.face*18, y:p.y-28, vx:ax*760, vy:ay*760, r:6, dmg:12, life:1.2, tr:[] }); SFX.shoot();
   }
   if (pressed.ult && p.ult >= 100) {
-    p.ult = 0; p.ultT = 1.6; say('רגע... מה זה הדבר הזה?! 😨', 1.6); shake = 16; flash = .5; slowmo = .35; ring(p.x, p.y-28, '#ffe066', 160, .6, 8);
+    p.ult = 0; p.ultT = 1.6; say('רגע... מה זה הדבר הזה?! 😨', 1.6); shake = 16; flash = .5; slowmo = .35; ring(p.x, p.y-28, '#ffe066', 160, .6, 8); SFX.ult();
   }
   if (p.ultT > 0) {
     p.ultT -= dt;
@@ -338,14 +489,14 @@ function updatePlayer(dt) {
   const wasGround = p.onGround; p.onGround = false;
   if (p.vy >= 0) for (const s of surfaces()) {
     if (p.x > s.x-8 && p.x < s.x+s.w+8 && prevY <= s.y && p.y >= s.y) {
-      if (!wasGround && p.vy > 500) { p.squash = 1.3; burst(p.x, s.y, 6, '#d9e6c8', 100, .3, 3, false); }
+      if (!wasGround && p.vy > 500) { p.squash = 1.3; SFX.land(); burst(p.x, s.y, 6, '#d9e6c8', 100, .3, 3, false); }
       p.y = s.y; p.vy = 0; p.onGround = true; p.jumps = 0;
     }
   }
   p.x = Math.max(-40, Math.min(W+40, p.x));
   p.squash += (1-p.squash)*Math.min(1,dt*12);
   if (p.y > H+80) { // fell into the void
-    p.lives--; say(pick(['חחחחחחח נפלת 😂','ביי ביי!','האי קטן, אמרתי לך','קפוץ קפוץ... אופס']), 2.4);
+    SFX.fall(); p.lives--; say(pick(['חחחחחחח נפלת 😂','ביי ביי!','האי קטן, אמרתי לך','קפוץ קפוץ... אופס']), 2.4);
     if (p.lives <= 0) return lose();
     respawn();
   }
@@ -353,8 +504,8 @@ function updatePlayer(dt) {
 function hurtPlayer(d, srcX) {
   const p = P;
   if (p.inv > 0) return;
-  if (p.shieldT > 0) { burst(p.x,p.y-24,10,'#7cf',200,.4,3); ring(p.x, p.y-24, '#7cf', 50, .25, 3); popText(p.x,p.y-60,'חסום!','#7cf',16); return; }
-  p.hp -= d; p.inv = .9; p.hitT = .25; shake = 9; hitstop = .07;
+  if (p.shieldT > 0) { burst(p.x,p.y-24,10,'#7cf',200,.4,3); ring(p.x, p.y-24, '#7cf', 50, .25, 3); popText(p.x,p.y-60,'חסום!','#7cf',16); SFX.block(); return; }
+  p.hp -= d; p.inv = .9; p.hitT = .25; shake = 9; hitstop = .07; SFX.hurt();
   p.vx = (p.x < srcX ? -1 : 1) * 380; p.vy = -380;
   burst(p.x,p.y-20,16,'#ff4d6d',280,.5,4); ring(p.x, p.y-24, '#ff4d6d', 45, .3, 4); popText(p.x,p.y-60,'-'+Math.round(d),'#ff6b85',22);
   if (p.hp <= 0) {
@@ -377,20 +528,20 @@ function bossHitbox(x,y,r,beam) {
 function hitBoss(d, popup=true) {
   if (B.dead) return;
   B.hp -= d; B.hitT = .1; B.sq = .84;
-  P.ult = Math.min(100, P.ult + d*.09);
+  addUlt(d*.09); SFX.bossHit();
   if (popup) popText(B.x+rnd(-40,40), B.y-BH/2-10, Math.round(d), '#ffe066', 17);
   if (Math.random() < .045 && bubble.t < .5) say(pick(HURT), 1.3);
   const ph = B.hp < B.max*.33 ? 2 : B.hp < B.max*.66 ? 1 : 0;
-  if (ph > B.phase) { B.phase = ph; say(PHASE_LINES[ph], 2.6); shake = 20; flash = .45; hitstop = .2;
+  if (ph > B.phase) { B.phase = ph; Music.intensity = ph; SFX.phase(); say(PHASE_LINES[ph], 2.6); shake = 20; flash = .45; hitstop = .2;
     burst(B.x,B.y,60,'#ff4d6d',460,1,5); ring(B.x, B.y, '#ff4d6d', 220, .7, 10); ring(B.x, B.y, '#ffe066', 140, .5, 5);
     B.atk = null; B.next = 1.2; enemyShots.length = 0; }
-  if (B.hp <= 0) { B.hp = 0; B.dead = true; B.deathT = 0; enemyShots = []; minis = []; say('לא... הקפוצ\'ון... 😵', 4); slowmo = 1.2; hitstop = .3; flash = .6; }
+  if (B.hp <= 0) { B.hp = 0; B.dead = true; B.deathT = 0; Music.mode = null; SFX.explode(); enemyShots = []; minis = []; say('לא... הקפוצ\'ון... 😵', 4); slowmo = 1.2; hitstop = .3; flash = .6; }
 }
 function startAttack() {
   const list = ['spray','dive','rain','minis','aimed'];
   if (B.phase >= 1) list.push('laser','dive');
   if (B.phase >= 2) list.push('spiral','clone');
-  B.atk = pick(list.filter(a => a !== B.lastAtk)); B.lastAtk = B.atk; B.atkT = 0; B.step = 0;
+  B.atk = pick(list.filter(a => a !== B.lastAtk)); B.lastAtk = B.atk; B.atkT = 0; B.step = 0; B.charged = false; if (B.atk === 'laser') SFX.laserCharge(); if (B.atk === 'rain') SFX.toss();
   if (Math.random() < .55) say(pick(TAUNTS), 2);
 }
 const SHOT_GLOW = { '😂':'255,210,60', '🔥':'255,110,20', '🪨':'170,160,200', '👟':'90,180,255', '🎒':'255,90,160', '📱':'120,255,200', '🧢':'90,180,255', '🍕':'255,160,60', '🧦':'200,120,255' };
@@ -402,7 +553,7 @@ function updateBoss(dt) {
   b.scale += ((b.phase===2?1.18:1) - b.scale)*dt*2;
   b.lag += (b.hp - b.lag) * Math.min(1, dt*2.5);
   if (b.dead) { b.deathT += dt; b.rot += dt*8; b.y += 60*dt;
-    if (Math.random()<.6) { burst(b.x+rnd(-60,60), b.y+rnd(-60,60), 8, pick(['#ffe066','#ff4d6d','#8dff7a','#7a5cff']), 320, .8, 5); if (Math.random()<.2) ring(b.x+rnd(-50,50), b.y+rnd(-50,50), '#fff', 70, .4, 3); shake = 6; }
+    if (Math.random()<.6) { burst(b.x+rnd(-60,60), b.y+rnd(-60,60), 8, pick(['#ffe066','#ff4d6d','#8dff7a','#7a5cff']), 320, .8, 5); if (Math.random()<.25) SFX.explode(); if (Math.random()<.2) ring(b.x+rnd(-50,50), b.y+rnd(-50,50), '#fff', 70, .4, 3); shake = 6; }
     if (b.deathT > 3) win(); return; }
   const speedUp = 1 + b.phase*.3;
   if (!b.atk) {
@@ -415,17 +566,17 @@ function updateBoss(dt) {
     if (a === 'spray') {
       b.tx = 450; b.ty = 120;
       if (T > .6 && b.step < 3) { if (T > .6 + b.step*.55) { const n = 10 + b.phase*4, off = b.step*.3;
-        for (let i=0;i<n;i++) { const ang = off + i/n*Math.PI*2; shot(b.x,b.y,Math.cos(ang)*190,Math.sin(ang)*190); } b.step++; b.sq = 1.25; ring(b.x, b.y, '#ffd23c', 90, .35, 5); } }
+        for (let i=0;i<n;i++) { const ang = off + i/n*Math.PI*2; shot(b.x,b.y,Math.cos(ang)*190,Math.sin(ang)*190); } b.step++; b.sq = 1.25; SFX.bossShot(); ring(b.x, b.y, '#ffd23c', 90, .35, 5); } }
       if (T > 2.4) endAttack();
     } else if (a === 'aimed') {
       b.tx = P.x < 450 ? 720 : 180; b.ty = 145;
       if (T > .5 && T < 2.5 && T > .5 + b.step*.18) { b.step++; const dx=P.x-b.x, dy=P.y-24-b.y, d=Math.hypot(dx,dy)||1;
-        shot(b.x,b.y,dx/d*340,dy/d*340,{emo:pick(['👟','🎒','📱']),r:13}); }
+        shot(b.x,b.y,dx/d*340,dy/d*340,{emo:pick(['👟','🎒','📱']),r:13}); SFX.toss(); }
       if (T > 2.8) endAttack();
     } else if (a === 'dive') {
-      if (b.step === 0) { b.tx = P.x; b.ty = 90; b.sq = 1 + Math.sin(T*40)*.08; if (T > 1) { b.step = 1; b.dx = P.x; b.dy = P.y-60; say('אני בא!!! 😤', 1); } }
+      if (b.step === 0) { b.tx = P.x; b.ty = 90; b.sq = 1 + Math.sin(T*40)*.08; if (!b.charged) { b.charged = true; SFX.charge(); } if (T > 1) { b.step = 1; b.dx = P.x; b.dy = P.y-60; say('אני בא!!! 😤', 1); } }
       else if (b.step === 1) { b.tx = b.dx; b.ty = b.dy; b.x += (b.dx-b.x)*dt*9; b.y += (b.dy-b.y)*dt*9;
-        if (Math.abs(b.y-b.dy) < 12) { b.step = 2; shake = 18; b.sq = .6; hitstop = .08;
+        if (Math.abs(b.y-b.dy) < 12) { b.step = 2; shake = 18; b.sq = .6; hitstop = .08; SFX.slam();
           const gy = groundBelow(b.x, b.y) ?? b.y + 100;
           burst(b.x,gy,34,'#d9c8b0',380,.7,5,false); ring(b.x, gy, '#fff', 140, .45, 6);
           for (let i=0;i<8;i++) shot(b.x, b.y+40, (i-3.5)*90, -200-rnd(0,120), {emo:'🪨', r:10, grav:true}); } }
@@ -436,12 +587,12 @@ function updateBoss(dt) {
       if (T > 3.6) endAttack();
     } else if (a === 'minis') {
       b.tx = 450; b.ty = 115;
-      if (b.step === 0 && T > .4) { b.step = 1; say('תכירו את האחים שלי 👬', 1.8); ring(b.x, b.y, '#ff4d6d', 120, .5, 5);
+      if (b.step === 0 && T > .4) { b.step = 1; say('תכירו את האחים שלי 👬', 1.8); SFX.summon(); ring(b.x, b.y, '#ff4d6d', 120, .5, 5);
         for (let i=0;i<3+b.phase;i++) minis.push({x:b.x,y:b.y,vx:rnd(-200,200),vy:rnd(-200,0),hp:40,t:rnd(0,6)}); }
       if (T > 1.8) endAttack();
     } else if (a === 'laser') {
       b.ty = 105;
-      if (b.step === 0) { b.tx = P.x; if (T > 1.1) { b.step = 1; b.lx = b.x; shake = 10; } }
+      if (b.step === 0) { b.tx = P.x; if (T > 1.1) { b.step = 1; b.lx = b.x; shake = 10; SFX.laser(); } }
       else { b.tx = b.lx + (P.x > b.lx ? 1 : -1) * (T-1.1)*120;
         if (T < 2.8) { if (Math.abs(P.x - b.x) < 26 && P.y > b.y) hurtPlayer(18, b.x);
           const gy = groundBelow(b.x, b.y + 80); if (gy && Math.random() < .7) burst(b.x, gy, 3, '#ff5a3d', 260, .4, 4); }
@@ -450,11 +601,11 @@ function updateBoss(dt) {
     } else if (a === 'spiral') {
       b.tx = 450; b.ty = 150; b.rot = Math.sin(T*10)*.3;
       if (T > .4 && T < 3.4 && T > .4 + b.step*.08) { b.step++; const ang = b.step*.45;
-        shot(b.x,b.y,Math.cos(ang)*220,Math.sin(ang)*220,{emo:'🔥'}); shot(b.x,b.y,-Math.cos(ang)*220,-Math.sin(ang)*220,{emo:'🔥'}); }
+        shot(b.x,b.y,Math.cos(ang)*220,Math.sin(ang)*220,{emo:'🔥'}); shot(b.x,b.y,-Math.cos(ang)*220,-Math.sin(ang)*220,{emo:'🔥'}); SFX.bossShot(); }
       if (T > 3.8) { b.rot = 0; endAttack(); }
     } else if (a === 'clone') {
       b.tx = 450; b.ty = 115;
-      if (b.step === 0 && T > .3) { b.step = 1; say('איזה מהם אני? 🤪', 2); ring(b.x, b.y, '#7a5cff', 160, .6, 6);
+      if (b.step === 0 && T > .3) { b.step = 1; say('איזה מהם אני? 🤪', 2); SFX.summon(); ring(b.x, b.y, '#7a5cff', 160, .6, 6);
         for (let i=0;i<6;i++) minis.push({x:b.x,y:b.y,vx:Math.cos(i)*300,vy:Math.sin(i)*300,hp:30,t:i,big:true}); }
       if (T > 1.5) endAttack();
     }
@@ -488,7 +639,7 @@ function update(dt) {
     m.vx += dx/d*420*dt; m.vy += dy/d*420*dt; m.vx *= .985; m.vy *= .985; m.x += m.vx*dt; m.y += m.vy*dt;
     if (d < 26) { hurtPlayer(12, m.x); m.hp = 0; }
     if (P.ultT > 0 && Math.abs(m.y-(P.y-28)) < 50 && Math.sign(m.x-P.x) === P.face) m.hp = 0;
-    if (m.hp <= 0) { burst(m.x,m.y,18,'#ffe066',260,.5,4); ring(m.x, m.y, '#ffe066', 40, .3, 3); popText(m.x,m.y-20,pick(['פוף!','ביי','😵']),'#fff',15); P.ult = Math.min(100,P.ult+6); } }
+    if (m.hp <= 0) { burst(m.x,m.y,18,'#ffe066',260,.5,4); ring(m.x, m.y, '#ffe066', 40, .3, 3); popText(m.x,m.y-20,pick(['פוף!','ביי','😵']),'#fff',15); addUlt(6); SFX.pop(); } }
   minis = minis.filter(m => m.hp > 0);
   for (const q of parts) { q.x += q.vx*dt; q.y += q.vy*dt; if (!q.float) q.vy += 300*dt; q.vx *= .98; q.life -= dt; }
   parts = parts.filter(q => q.life > 0);
@@ -850,17 +1001,47 @@ function updateButtons() {
 
 // ---------- states ----------
 const ov = document.getElementById('overlay'), ovTitle = document.getElementById('ovTitle'), ovText = document.getElementById('ovText'), startBtn = document.getElementById('startBtn');
-function start() { reset(); state = 'play'; ov.style.display = 'none'; }
-function lose() { state = 'over'; setTimeout(() => {
+function start() { initAudio(); SFX.click(); reset(); state = 'play'; ov.style.display = 'none'; Music.intensity = 0; musicPlay('battle'); }
+function addUlt(v) { const was = P.ult; P.ult = Math.min(100, P.ult + v); if (was < 100 && P.ult >= 100) SFX.ultReady(); }
+function lose() { state = 'over'; Music.mode = null; SFX.lose(); setTimeout(() => { musicPlay('menu');
   ovTitle.textContent = 'הפסדת 💀'; ovText.innerHTML = 'הוא אפילו לא קם מהכיסא.<br><i>"למה שלא תבין את זה?"</i>'; startBtn.textContent = 'עוד פעם!'; ov.style.display = 'flex'; }, 900); }
-function win() { if (state !== 'play') return; state = 'won';
+function win() { if (state !== 'play') return; state = 'won'; SFX.win(); setTimeout(() => { if (state === 'won') musicPlay('menu'); }, 1800);
   ovTitle.textContent = 'ניצחת!!! 🏆'; ovText.innerHTML = 'הבוס עם הקפוצ\'ון הובס.<br>הוא חוזר לאוטובוס לחשוב על החיים שלו. 🚌'; startBtn.textContent = 'שוב פעם'; ov.style.display = 'flex'; }
 startBtn.addEventListener('click', start);
+
+// ---------- settings panel ----------
+const setEl = document.getElementById('settings'), optMusic = document.getElementById('optMusic'), optSfx = document.getElementById('optSfx'),
+      volMusic = document.getElementById('volMusic'), volSfx = document.getElementById('volSfx');
+let paused = false;
+function syncSettingsUI() {
+  optMusic.checked = settings.music; optSfx.checked = settings.sfx;
+  volMusic.value = Math.round(settings.musicVol*100); volSfx.value = Math.round(settings.sfxVol*100);
+  volMusic.disabled = !settings.music; volSfx.disabled = !settings.sfx;
+}
+function openSettings() { initAudio(); syncSettingsUI(); setEl.hidden = false; paused = true; for (const k in keys) keys[k] = false; document.querySelectorAll('#pad .on').forEach(b => b.classList.remove('on')); }
+function closeSettings() { setEl.hidden = true; paused = false; SFX.click(); }
+function settingChanged() {
+  settings.music = optMusic.checked; settings.sfx = optSfx.checked;
+  settings.musicVol = volMusic.value/100; settings.sfxVol = volSfx.value/100;
+  volMusic.disabled = !settings.music; volSfx.disabled = !settings.sfx;
+  applyVolumes(); saveSettings();
+}
+optMusic.addEventListener('change', settingChanged); optSfx.addEventListener('change', () => { settingChanged(); SFX.click(); });
+volMusic.addEventListener('input', settingChanged); volSfx.addEventListener('input', settingChanged); volSfx.addEventListener('change', () => SFX.shoot());
+document.getElementById('gear').addEventListener('click', e => { e.stopPropagation(); setEl.hidden ? openSettings() : closeSettings(); });
+document.getElementById('closeSettings').addEventListener('click', closeSettings);
+setEl.addEventListener('pointerdown', e => { if (e.target === setEl) closeSettings(); });
+addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') setEl.hidden ? openSettings() : closeSettings(); });
+// browsers only allow sound after a tap, so the menu music starts on the first one
+const firstGesture = () => { initAudio(); if (!Music.mode && state === 'menu') musicPlay('menu'); };
+addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
+document.addEventListener('visibilitychange', () => { if (!ac) return; document.hidden ? ac.suspend() : ac.resume(); });
 
 reset(); state = 'menu';
 let last = performance.now();
 function frame(now) {
   let dt = Math.min(.033, (now-last)/1000); last = now;
+  if (paused) { for (const k in pressed) pressed[k] = false; draw(); requestAnimationFrame(frame); return; }
   if (hitstop > 0) { hitstop -= dt; dt = 0; }
   if (slowmo > 0) { slowmo -= dt; dt *= .35; }
   ambient(dt);
