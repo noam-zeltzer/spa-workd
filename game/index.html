@@ -2,14 +2,17 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>קרב על האי</title>
 <style>
   :root { --bg:#05060f; --fg:#f4f4ff; --accent:#8dff7a; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
   html,body { margin:0; height:100%; background:radial-gradient(ellipse at 50% 30%, #161a3a 0%, #05060f 70%); color:var(--fg);
               font-family:system-ui,"Segoe UI",Arial,sans-serif; overflow:hidden; touch-action:none; }
-  #wrap { display:flex; flex-direction:column; height:100%; }
+  #wrap { display:flex; flex-direction:column; height:100%; height:100dvh; position:relative; }
   #stage { flex:1; position:relative; min-height:0; display:flex; align-items:center; justify-content:center; padding:6px; }
   canvas { width:100%; height:100%; object-fit:contain; display:block; }
   #pad { display:flex; justify-content:space-between; align-items:flex-end; gap:8px; padding:8px 12px calc(12px + env(safe-area-inset-bottom)); direction:ltr; }
@@ -63,6 +66,40 @@
   .panel .status { text-align:center; font-size:13px; margin-top:8px; min-height:18px; line-height:1.5; }
   .panel .hint { text-align:center; font-size:12px; opacity:.5; margin-top:10px; }
   @media (max-width:600px) { #gear { width:38px; height:38px; font-size:18px; } }
+  #fs { position:absolute; top:62px; left:12px; width:44px; height:44px; font-size:20px; z-index:5; }
+  #fs[hidden] { display:none; }
+  .rotate { display:none; align-items:center; gap:8px; padding:8px 14px; border-radius:16px; background:rgba(141,255,122,.12); border:1px solid rgba(141,255,122,.35); font-size:14px; font-weight:600; }
+  .rotate span { display:inline-block; font-size:22px; animation:turn 1.8s ease-in-out infinite; }
+  @keyframes turn { 0%,25% { transform:rotate(0); } 55%,100% { transform:rotate(-90deg); } }
+  @media (orientation:portrait) and (pointer:coarse) { .rotate { display:flex; } }
+
+  /* phone held sideways: the game fills the screen and the buttons float over it */
+  @media (orientation:landscape) and (max-height:560px) {
+    #stage { padding:0; }
+    #pad { position:absolute; left:0; right:0; bottom:0; pointer-events:none; align-items:flex-end;
+           padding:0 calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); }
+    #pad button { pointer-events:auto; opacity:.88; width:56px; height:56px; font-size:20px; }
+    #pad [data-k="left"], #pad [data-k="right"] { width:66px; height:66px; font-size:24px; }
+    #pad [data-k="jump"] { width:64px; height:64px; }
+    #pad [data-k="shoot"] { width:76px; height:76px; font-size:28px; }
+    .group { flex-wrap:nowrap; }
+    .group.right { display:grid; max-width:none; gap:8px; align-items:center; justify-items:center;
+                   grid-template-columns:repeat(3, auto); grid-template-areas:"dash shield ult" ". jump shoot"; }
+    #b_dash { grid-area:dash; } #b_shield { grid-area:shield; } #ult { grid-area:ult; }
+    #pad [data-k="jump"] { grid-area:jump; } #pad [data-k="shoot"] { grid-area:shoot; }
+    #gear { top:calc(8px + env(safe-area-inset-top)); left:calc(8px + env(safe-area-inset-left)); width:40px; height:40px; font-size:18px; }
+    #fs { top:calc(54px + env(safe-area-inset-top)); left:calc(8px + env(safe-area-inset-left)); width:40px; height:40px; font-size:18px; }
+    #overlay { gap:6px; padding:10px; }
+    #overlay .portrait { width:72px; height:72px; padding:3px; }
+    #overlay h1 { font-size:30px; }
+    #overlay p { font-size:13px; line-height:1.4; }
+    #overlay .start { height:46px; font-size:18px; }
+    .keys { display:none; }
+    .panel { max-height:calc(100% - 16px); overflow:auto; padding:12px 18px; }
+    .panel h2 { margin-bottom:4px; font-size:18px; }
+    .opt { padding:6px 4px 2px; }
+    .panel .test { height:36px; margin-top:4px; } .panel .done { height:40px; margin-top:8px; } .panel .hint { display:none; }
+  }
 </style>
 </head>
 <body>
@@ -70,6 +107,7 @@
   <div id="stage">
     <canvas id="c"></canvas>
     <button id="gear" aria-label="הגדרות">⚙️</button>
+    <button id="fs" aria-label="מסך מלא" hidden>⛶</button>
     <div id="settings" hidden>
       <div class="panel">
         <h2>⚙️ הגדרות</h2>
@@ -87,6 +125,7 @@
       <div class="portrait"><img id="ovImg" alt=""></div>
       <h1 id="ovTitle">קרב על האי המעופף</h1>
       <p id="ovText">בעולם ריק לגמרי מרחף אי קטן אחד. ועליו אתה.<br>ואז הוא מגיע. <b>הבוס.</b> עם הקפוצ'ון. והמבט הזה.<br>אל תיפול מהאי. תביס אותו.</p>
+      <div class="rotate"><span>📱</span> סובב את הטלפון לרוחב – ככה הכי כיף</div>
       <button class="start" id="startBtn">יאללה לקרב!</button>
       <div class="keys">מקלדת: ← → זזים · ↑ קפיצה · Z יריה · X דאש · C מגן · V אולטי</div>
     </div>
@@ -95,12 +134,12 @@
     <div class="group">
       <button data-k="left">◀</button>
       <button data-k="right">▶</button>
-      <button data-k="jump">⤒<small>קפיצה</small></button>
     </div>
     <div class="group right">
       <button data-k="dash" id="b_dash">💨<small>דאש</small><span class="cd"></span></button>
       <button data-k="shield" id="b_shield">🛡️<small>מגן</small><span class="cd"></span></button>
       <button data-k="ult" id="ult">⚡<small>אולטי</small><span class="cd"></span></button>
+      <button data-k="jump">⤒<small>קפיצה</small></button>
       <button data-k="shoot">🔥<small>יריה</small></button>
     </div>
   </div>
@@ -926,9 +965,22 @@ function heart(x, y, s, full) {
   ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.restore();
 }
+const compact = matchMedia('(orientation:landscape) and (max-height:560px)');
+// ---------- fullscreen + landscape lock (Android; iPhones have no fullscreen for pages) ----------
+const fsBtn = document.getElementById('fs'), root = document.documentElement;
+const fsEnabled = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+function goFullscreen() {
+  if (!fsEnabled) return;
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  try { Promise.resolve(req.call(root, { navigationUI:'hide' })).then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {}); } catch (e) {}
+}
+function leaveFullscreen() { const ex = document.exitFullscreen || document.webkitExitFullscreen; try { Promise.resolve(ex.call(document)).catch(() => {}); } catch (e) {} }
+fsBtn.hidden = !fsEnabled;
+fsBtn.addEventListener('click', e => { e.stopPropagation(); isFs() ? leaveFullscreen() : goFullscreen(); });
 function drawHUD() {
   // boss bar
-  const bx = 250, by = 22, bw = 420, bh = 16;
+  const bx = compact.matches ? 290 : 250, by = 22, bw = 420, bh = 16;
   ctx.fillStyle = 'rgba(8,8,24,.7)'; roundRect(bx - 50, by - 16, bw + 62, bh + 26, 14); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.fillStyle = 'rgba(0,0,0,.6)'; roundRect(bx, by, bw, bh, 8); ctx.fill();
@@ -942,7 +994,7 @@ function drawHUD() {
   ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.direction = 'rtl'; ctx.fillStyle = '#fff';
   ctx.shadowColor = '#000'; ctx.shadowBlur = 4; ctx.fillText(`הבוס עם הקפוצ'ון · שלב ${B.phase + 1}/3`, bx + bw/2, by + bh - 3); ctx.shadowBlur = 0; ctx.direction = 'ltr';
   // player panel
-  const px = 14, py = H - 72;
+  const px = 14, py = compact.matches ? 8 : H - 72; // sideways phones: the move buttons sit over the bottom corner
   ctx.fillStyle = 'rgba(8,8,24,.68)'; roundRect(px, py, 196, 60, 14); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.stroke();
   for (let i = 0; i < 3; i++) heart(px + 18 + i*22, py + 18, 1.15, i < P.lives);
   ctx.fillStyle = 'rgba(0,0,0,.6)'; roundRect(px + 12, py + 30, 172, 10, 5); ctx.fill();
@@ -1019,7 +1071,7 @@ function updateButtons() {
 
 // ---------- states ----------
 const ov = document.getElementById('overlay'), ovTitle = document.getElementById('ovTitle'), ovText = document.getElementById('ovText'), startBtn = document.getElementById('startBtn');
-function start() { initAudio(); SFX.click(); reset(); state = 'play'; ov.style.display = 'none'; Music.intensity = 0; musicPlay('battle'); }
+function start() { initAudio(); SFX.click(); if (matchMedia('(pointer:coarse)').matches && !isFs()) goFullscreen(); reset(); state = 'play'; ov.style.display = 'none'; Music.intensity = 0; musicPlay('battle'); }
 function addUlt(v) { const was = P.ult; P.ult = Math.min(100, P.ult + v); if (was < 100 && P.ult >= 100) SFX.ultReady(); }
 function lose() { state = 'over'; Music.mode = null; SFX.lose(); setTimeout(() => { musicPlay('menu');
   ovTitle.textContent = 'הפסדת 💀'; ovText.innerHTML = 'הוא אפילו לא קם מהכיסא.<br><i>"למה שלא תבין את זה?"</i>'; startBtn.textContent = 'עוד פעם!'; ov.style.display = 'flex'; }, 900); }
