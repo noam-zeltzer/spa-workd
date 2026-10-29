@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>סיבוב 180°</title>
+    <script src="assets/vendor/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Heebo";
+        src: url("assets/fonts/heebo-hebrew.woff2") format("woff2");
+        font-weight: 100 900;
+        unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+      }
+      @font-face {
+        font-family: "Heebo";
+        src: url("assets/fonts/heebo-latin.woff2") format("woff2");
+        font-weight: 100 900;
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+          U+2000-206F, U+20AC, U+2122, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      :root {
+        --ground: #f7f5f0;
+        --ink: #1f2a37;
+        --muted: #8a8f98;
+        --shape: #2e5c8a;
+        --dot: #e4572e;
+        --land: #12916b;
+        --font-display: "Heebo", sans-serif;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html {
+        overflow: hidden;
+        background: var(--ground);
+      }
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--ground);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: var(--ground);
+        font-family: var(--font-display);
+        color: var(--ink);
+      }
+      #stage {
+        position: absolute;
+        inset: 0;
+      }
+      #stage svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .caption {
+        position: absolute;
+        left: 240px;
+        right: 240px;
+        top: 130px;
+        text-align: center;
+        direction: rtl;
+        font-size: 54px;
+        line-height: 1.35;
+        font-weight: 500;
+      }
+      .caption .line {
+        display: block;
+      }
+      .caption b {
+        font-weight: 700;
+        color: var(--shape);
+      }
+      #cap-after b {
+        color: var(--land);
+      }
+      #counter {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 150px;
+        text-align: center;
+        font-size: 88px;
+        font-weight: 700;
+        color: var(--shape);
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="18"
+      data-width="1920"
+      data-height="1080"
+    >
+      <!-- Pivot (960,640). A 180° turn sends (x,y) to (1920-x, 1280-y). -->
+      <div id="stage" class="clip" data-start="0" data-duration="18" data-track-index="1">
+        <svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+          <!-- Dot's path: half a circle around the pivot -->
+          <path
+            id="trail"
+            d="M780,530 A210.95,210.95 0 0 1 1140,750"
+            fill="none"
+            stroke="#e4572e"
+            stroke-width="3"
+            stroke-linecap="round"
+            stroke-dasharray="662.7"
+            stroke-dashoffset="662.7"
+            opacity="0.55"
+          />
+
+          <g id="shape-wrap">
+            <g id="shape">
+              <!-- Rectangle with a step cut out of its top-right corner -->
+              <path id="body" d="M750,500 H1030 V600 H1170 V780 H750 Z" fill="#2e5c8a" />
+              <circle id="dot" cx="780" cy="530" r="16" fill="#e4572e" />
+            </g>
+          </g>
+
+          <!-- Where things started -->
+          <g id="ghost" opacity="0">
+            <path
+              d="M1030,500 H1170 V600 H1030 Z"
+              fill="none"
+              stroke="#8a8f98"
+              stroke-width="3"
+              stroke-dasharray="10 8"
+            />
+            <circle
+              cx="780"
+              cy="530"
+              r="16"
+              fill="#f7f5f0"
+              stroke="#e4572e"
+              stroke-width="3"
+              stroke-dasharray="6 5"
+            />
+          </g>
+
+          <!-- Where they land: the point opposite through the pivot -->
+          <g id="land-notch" opacity="0">
+            <path
+              d="M750,680 H890 V780 H750 Z"
+              fill="#12916b"
+              fill-opacity="0.22"
+              stroke="#12916b"
+              stroke-width="5"
+            />
+          </g>
+          <line
+            id="link-notch"
+            x1="1030"
+            y1="600"
+            x2="890"
+            y2="680"
+            stroke="#12916b"
+            stroke-width="3"
+            stroke-dasharray="8 7"
+            opacity="0"
+          />
+          <line
+            id="link-dot"
+            x1="780"
+            y1="530"
+            x2="1140"
+            y2="750"
+            stroke="#12916b"
+            stroke-width="3"
+            stroke-dasharray="8 7"
+            opacity="0"
+          />
+          <circle
+            id="land-dot"
+            cx="1140"
+            cy="750"
+            r="32"
+            fill="none"
+            stroke="#12916b"
+            stroke-width="6"
+            opacity="0"
+          />
+
+          <!-- Pivot crosshair, kept faint and on top -->
+          <g id="pivot" opacity="0">
+            <line x1="960" y1="370" x2="960" y2="910" stroke="#8a8f98" stroke-width="2" stroke-dasharray="4 6" />
+            <line x1="690" y1="640" x2="1230" y2="640" stroke="#8a8f98" stroke-width="2" stroke-dasharray="4 6" />
+            <circle cx="960" cy="640" r="7" fill="#f7f5f0" stroke="#1f2a37" stroke-width="2.5" />
+          </g>
+        </svg>
+      </div>
+
+      <div id="cap-before" class="clip caption" lang="he" dir="rtl" data-start="0.5" data-duration="6.2" data-track-index="2" data-hold>
+        <div id="cap-before-text">
+          <span class="line"><b>סיבוב <bdi dir="ltr">180°</bdi></b> = חצי סיבוב שלם סביב המרכז,</span>
+          <span class="line">לא הופכים (כמו בראי) אלא מזיזים הכל יחד</span>
+        </div>
+      </div>
+
+      <div id="counter-host" class="clip" data-start="6.7" data-duration="5.3" data-track-index="3">
+        <div id="counter" dir="ltr">0°</div>
+      </div>
+
+      <div id="cap-after" class="clip caption" lang="he" dir="rtl" data-start="12" data-duration="6" data-track-index="2">
+        <div id="cap-after-text">
+          <span class="line">כל נקודה עברה למקום <b>המדויק הנגדי</b> לה דרך המרכז</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const PIVOT = "960 640";
+      const TURN_AT = 6.6;
+      const TURN = 4.6;
+
+      // Shape and pivot settle in
+      tl.fromTo("#shape-wrap", { opacity: 0 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, 0);
+      tl.fromTo("#pivot", { opacity: 0 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, 0.3);
+
+      // Caption before the turn, held long enough to read
+      tl.fromTo(
+        "#cap-before-text",
+        { opacity: 0, filter: "blur(8px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power2.out" },
+        0.5,
+      );
+      tl.to("#cap-before-text", { opacity: 0, filter: "blur(6px)", duration: 0.25, ease: "power2.in" }, 6.4);
+
+      // Mark where the dot and the notch start
+      tl.fromTo("#ghost", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power1.out" }, TURN_AT - 0.2);
+
+      // The turn: everything moves together, around the pivot
+      tl.fromTo(
+        "#shape",
+        { rotation: 0, svgOrigin: PIVOT },
+        { rotation: 180, svgOrigin: PIVOT, duration: TURN, ease: "sine.inOut" },
+        TURN_AT,
+      );
+      tl.fromTo(
+        "#trail",
+        { strokeDashoffset: 662.7 },
+        { strokeDashoffset: 0, duration: TURN, ease: "sine.inOut" },
+        TURN_AT,
+      );
+      const angle = { v: 0 };
+      tl.fromTo(
+        "#counter",
+        { opacity: 0 },
+        { opacity: 1, duration: 0.3, ease: "power1.out" },
+        6.7,
+      );
+      tl.fromTo(
+        angle,
+        { v: 0 },
+        {
+          v: 180,
+          duration: TURN,
+          ease: "sine.inOut",
+          onUpdate: () => {
+            document.getElementById("counter").textContent = Math.round(angle.v) + "°";
+          },
+        },
+        TURN_AT,
+      );
+      tl.to("#counter", { opacity: 0, duration: 0.25, ease: "power2.in" }, 11.7);
+
+      // Landing spots, in a new colour, joined to their starts through the pivot
+      const LAND = TURN_AT + TURN + 0.3;
+      tl.fromTo(
+        "#land-dot",
+        { opacity: 0, scale: 1.8, svgOrigin: "1140 750" },
+        { opacity: 1, scale: 1, svgOrigin: "1140 750", duration: 0.6, ease: "power3.out" },
+        LAND,
+      );
+      tl.fromTo("#land-notch", { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power2.out" }, LAND + 0.2);
+      tl.fromTo(
+        "#link-dot",
+        { opacity: 0.9, strokeDasharray: "0 999" },
+        { strokeDasharray: "422 0", duration: 0.9, ease: "power2.inOut" },
+        LAND + 0.5,
+      );
+      tl.fromTo(
+        "#link-notch",
+        { opacity: 0.9, strokeDasharray: "0 999" },
+        { strokeDasharray: "161 0", duration: 0.6, ease: "power2.inOut" },
+        LAND + 0.7,
+      );
+
+      // Caption after the turn, held to the end
+      tl.fromTo(
+        "#cap-after-text",
+        { opacity: 0, filter: "blur(8px)" },
+        { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power2.out" },
+        12.1,
+      );
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+
+      // Opened straight in a browser (no HyperFrames runtime): fit the
+      // 1920×1080 frame to the window and play it on a loop.
+      window.addEventListener("load", () => {
+        if (window.__hf) return;
+        const fit = () => {
+          const k = Math.min(innerWidth / 1920, innerHeight / 1080);
+          document.body.style.transformOrigin = "0 0";
+          document.body.style.transform =
+            `translate(${(innerWidth - 1920 * k) / 2}px, ${(innerHeight - 1080 * k) / 2}px) scale(${k})`;
+          document.documentElement.style.background = "#f7f5f0";
+        };
+        fit();
+        addEventListener("resize", fit);
+        tl.repeat(-1).repeatDelay(1.5).play(0);
+      });
+    </script>
+  </body>
+</html>
