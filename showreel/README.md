@@ -22,12 +22,13 @@ motion lives.
 ## Files
 
 - `index.html` — the whole piece: one deterministic `renderFrame(t)` drawn with Canvas 2D and three.js, plus a small player. Opens in any browser and plays in real time.
-- `showreel.mp4` — the rendered master: 1920 × 1080, 60 fps, H.264 + AAC, motion-blurred and anti-aliased by sub-frame accumulation.
 - `soundtrack.mp3` — the score, synthesised in `tools/soundtrack.py` (NumPy only), every cue placed on the picture's timeline.
 - `tools/render.cjs` — offline renderer: headless Chromium (Playwright) → PNG frames → ffmpeg.
 - `tools/build-font.mjs` — turns the Archivo Expanded Black TTF into the subset typeface JSON embedded in the page for the extruded 3D type.
 
-## Render it yourself
+## Render a video file (optional)
+
+The page plays live, so no video file is kept in the repository. To export one:
 
 ```sh
 npm i --prefix /tmp/deps three@0.170.0
